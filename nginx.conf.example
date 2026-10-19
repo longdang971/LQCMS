@@ -1,0 +1,39 @@
+# Ví dụ cấu hình nginx cho LQCMS trên VPS (PHP-FPM 8.3+).
+# Chỉ cần cấu hình MỘT LẦN — đổi cấu trúc permalink trong admin không phải sửa file này.
+server {
+    listen 80;
+    server_name example.com www.example.com;
+    root /var/www/lqcms/public;          # trỏ vào thư mục public, KHÔNG phải thư mục gốc project
+    index index.php;
+
+    client_max_body_size 32m;            # khớp với upload_max_filesize / post_max_size của PHP
+
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    # Chặn chạy PHP trong content/ (theme, plugin, uploads) — chỉ index.php được thực thi.
+    location ~* ^/content/.*\.(php|phtml|phar)$ {
+        deny all;
+    }
+
+    location = /index.php {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    }
+
+    location ~ \.php$ {
+        return 404;
+    }
+
+    location ~* \.(css|js|svg|png|jpe?g|gif|webp|ico|woff2?)$ {
+        expires 30d;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+}

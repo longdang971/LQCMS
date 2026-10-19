@@ -1,0 +1,8 @@
+{
+  "name": "LQ Default",
+  "description": "Theme mặc định của LQCMS: sạch sẽ, hiện đại, tối ưu cho đọc bài.",
+  "version": "1.0.0",
+  "author": "LQCMS",
+  "screenshot": "screenshot.svg",
+  "tags": ["blog", "tối giản", "responsive"]
+}

@@ -1,0 +1,4 @@
+# Không cho chạy trực tiếp tệp PHP trong content/ (theme, plugin, uploads).
+<FilesMatch "\.(php|phtml|phar)$">
+  Require all denied
+</FilesMatch>
