@@ -9,7 +9,7 @@ namespace LQ\Core;
  */
 final class Migrations
 {
-    public const LATEST = 4;
+    public const LATEST = 5;
 
     public static function run(): void
     {
@@ -75,5 +75,22 @@ final class Migrations
             CONSTRAINT {$db->prefix}fk_media_author FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"));
         \LQ\Content\Media::importExisting();
+    }
+
+    /** v5: lịch sử phiên bản + bản tự lưu của bài viết/trang. */
+    private static function v5(Database $db): void
+    {
+        $db->pdo->exec($db->sql("CREATE TABLE IF NOT EXISTS {post_revisions} (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            post_id BIGINT UNSIGNED NOT NULL,
+            kind VARCHAR(16) NOT NULL DEFAULT 'revision',
+            title TEXT NOT NULL,
+            content LONGTEXT NOT NULL,
+            author_id BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            KEY idx_post_kind (post_id, kind, created_at),
+            CONSTRAINT {$db->prefix}fk_rev_post FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE,
+            CONSTRAINT {$db->prefix}fk_rev_author FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"));
     }
 }

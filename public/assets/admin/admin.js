@@ -923,4 +923,117 @@
     }
     syncCatalog();
   }
+
+  /* ------------------------------------------------------------------
+   * Chống mất bài: tự lưu, khôi phục bản tự lưu, khoá khi nhiều người cùng sửa
+   * ------------------------------------------------------------------ */
+  const guardForm = $('[data-post-form]');
+  if (guardForm && guardForm.dataset.base) {
+    const base = guardForm.dataset.base;
+    let postId = +guardForm.dataset.postId || 0;
+    const statusEl = $('[data-autosave-status]', guardForm);
+    const titleEl = $('[name="title"]', guardForm);
+    const editor = () => (window.tinymce ? tinymce.get('content') : null);
+    const getContent = () => (editor() ? editor().getContent() : ($('#content')?.value || ''));
+    const snap = () => JSON.stringify([titleEl.value, getContent()]);
+    const post = (url, data) => {
+      const fd = new FormData();
+      Object.entries(data).forEach(([k, v]) => fd.append(k, v));
+      return fetch(url, { method: 'POST', body: fd, headers: { Accept: 'application/json', 'X-CSRF-Token': csrf() } }).then((r) => r.json());
+    };
+    const setStatus = (cls, text) => { if (statusEl) { statusEl.className = cls; statusEl.textContent = text; } };
+
+    // Mốc so sánh: lấy sau khi TinyMCE dựng xong (nội dung đã được chuẩn hoá).
+    let lastSnap = null;
+    const waitEditor = setInterval(() => { if (editor() && editor().initialized) { lastSnap = snap(); clearInterval(waitEditor); } }, 300);
+    setTimeout(() => clearInterval(waitEditor), 20000);
+
+    let submitting = false;
+    let inFlight = false;
+    guardForm.addEventListener('submit', () => { submitting = true; });
+
+    const autosave = () => {
+      if (submitting || inFlight || lastSnap === null) return;
+      const cur = snap();
+      if (cur === lastSnap) return;
+      inFlight = true;
+      setStatus('is-saving', 'Đang lưu…');
+      post(base + '/autosave', { id: postId || '', title: titleEl.value, content: getContent() })
+        .then((d) => {
+          if (!d.ok) throw new Error(d.message || 'Lỗi');
+          if (d.skipped) { setStatus('muted', '—'); return; }
+          lastSnap = cur;
+          if (d.created) {
+            // Bài mới vừa được tạo thành bản nháp: chuyển form sang chế độ sửa bài này.
+            postId = d.id;
+            guardForm.dataset.postId = d.id;
+            const idInput = document.createElement('input');
+            idInput.type = 'hidden'; idInput.name = 'id'; idInput.value = d.id;
+            guardForm.prepend(idInput);
+            const loaded = $('[data-loaded-at]', guardForm);
+            if (loaded) loaded.value = d.loaded_at;
+            const slug = $('[data-slug-target]', guardForm);
+            if (slug && !slug.value) slug.value = d.slug;
+            history.replaceState(null, '', d.edit_url);
+            startHeartbeat();
+          }
+          setStatus('is-saved', 'Đã lưu lúc ' + d.saved_at);
+        })
+        .catch(() => setStatus('is-error', 'Chưa tự lưu được'))
+        .finally(() => { inFlight = false; });
+    };
+    setInterval(autosave, 30000);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) autosave(); });
+
+    // Banner khôi phục bản tự lưu
+    const banner = $('[data-autosave-banner]');
+    if (banner) {
+      banner.addEventListener('click', (e) => {
+        if (e.target.closest('[data-autosave-dismiss]')) banner.remove();
+        if (e.target.closest('[data-autosave-restore]')) {
+          const data = JSON.parse($('[data-autosave-data]', banner).textContent);
+          titleEl.value = data.title;
+          if (editor()) editor().setContent(data.content); else $('#content').value = data.content;
+          banner.remove();
+          guardForm.dispatchEvent(new Event('input'));
+          toast('success', 'Đã khôi phục bản tự lưu. Nhớ bấm Lưu để giữ lại.');
+        }
+      });
+    }
+
+    // Khoá chỉnh sửa: nhịp 30 giây; báo khi người khác đang sửa hoặc giành quyền.
+    const takeover = $('[data-takeover-banner]');
+    let hbTimer = null;
+    const showTakeover = (name) => {
+      $('[data-takeover-text]', takeover).innerHTML = `<strong>${escapeHtml(name)}</strong> đang sửa ${base.endsWith('pages') ? 'trang' : 'bài'} này. Nếu cả hai cùng lưu, bản của người lưu sau sẽ đè bản trước. `
+        + '<button type="button" class="link btn-plain" data-take-lock>Giành quyền sửa</button>';
+      takeover.hidden = false;
+    };
+    const heartbeat = (take) => post(`${base}/${postId}/lock`, take ? { take: 1 } : {}).then((d) => {
+      if (d.locked_by) showTakeover(d.locked_by.name); else takeover.hidden = true;
+    }).catch(() => {});
+    function startHeartbeat() { if (!hbTimer && postId) hbTimer = setInterval(() => heartbeat(false), 30000); }
+    takeover.addEventListener('click', (e) => { if (e.target.closest('[data-take-lock]')) heartbeat(true); });
+
+    const lockedBy = $('[data-locked-by]');
+    if (lockedBy && postId) {
+      confirmDialog({
+        title: `${lockedBy.dataset.lockedBy} đang sửa ${base.endsWith('pages') ? 'trang' : 'bài'} này`,
+        text: 'Nếu hai người cùng sửa, người lưu sau sẽ ghi đè thay đổi của người trước. Bạn vẫn muốn sửa?',
+        confirmText: 'Vẫn sửa',
+        cancelText: 'Quay lại',
+      }).then((ok) => {
+        if (ok) { heartbeat(true); startHeartbeat(); } else { location.href = base; }
+      });
+    } else {
+      startHeartbeat();
+    }
+    // Rời trang: nhả khoá để người khác không bị cảnh báo nhầm.
+    window.addEventListener('pagehide', () => {
+      if (!postId || !navigator.sendBeacon) return;
+      const fd = new FormData();
+      fd.append('_token', csrf());
+      navigator.sendBeacon(`${base}/${postId}/unlock`, fd);
+    });
+  }
 })();

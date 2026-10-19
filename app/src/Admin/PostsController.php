@@ -7,6 +7,7 @@ use LQ\Content\Media;
 use LQ\Content\Pages;
 use LQ\Content\PostFields;
 use LQ\Content\Posts;
+use LQ\Content\Revisions;
 use LQ\Content\Taxonomies;
 use LQ\Content\Terms;
 use LQ\Core\Auth;
@@ -93,7 +94,16 @@ final class PostsController
     {
         $errors = $_SESSION['_errors'] ?? [];
         unset($_SESSION['_errors']);
+        $uid = (int) current_user()['id'];
+        $lockedBy = null;
+        if ($post) {
+            // Mở bài: giữ khoá nếu không ai đang sửa; nếu có người khác thì báo để người dùng chọn.
+            $lockedBy = Revisions::heartbeat((int) $post['id'], $uid);
+        }
         $common = [
+            'autosave' => $post ? Revisions::pendingAutosave($post, $uid) : null,
+            'lockedBy' => $lockedBy,
+            'revisionCount' => $post ? Revisions::count((int) $post['id']) : 0,
             'post' => $post,
             'type' => $type,
             'errors' => $errors,
@@ -173,6 +183,16 @@ final class PostsController
         $metaInput = is_array($_POST['meta'] ?? null) ? $_POST['meta'] : [];
         $template = $type === 'page' ? trim((string) ($_POST['template'] ?? '')) : null;
         [$fieldErrors, $metaValues] = PostFields::collect($metaInput, $existing, $type, $template);
+
+        // Bài đã được người khác lưu sau khi mình mở: chặn lần lưu này để không ghi đè âm thầm.
+        // Lưu lần nữa (form đã được cập nhật mốc thời gian mới) mới ghi đè.
+        $loadedAt = input_str('loaded_at');
+        if ($existing && $loadedAt !== '' && $existing['updated_at'] > $loadedAt && !$fieldErrors) {
+            $by = db()->value("SELECT u.display_name FROM {post_revisions} r JOIN {users} u ON u.id = r.author_id WHERE r.post_id = ? AND r.kind = 'revision' ORDER BY r.id DESC LIMIT 1", [$id]);
+            $fieldErrors['_conflict'] = ($by ? "$by" : 'Người khác') . ' đã lưu ' . Posts::TYPES[$type]['singular'] . ' này lúc ' . format_date($existing['updated_at'], 'H:i') . ' sau khi bạn mở. Nội dung của bạn vẫn còn trong form: bấm lưu lần nữa để ghi đè, hoặc xem Lịch sử phiên bản trước.';
+            $_POST['loaded_at'] = $existing['updated_at'];
+        }
+
         [$errors, $savedId] = $fieldErrors ? [$fieldErrors, null] : Posts::save($_POST, $existing, $featured, $type);
         if ($errors) {
             Session::keepOld($_POST);
@@ -184,6 +204,9 @@ final class PostsController
         PostFields::save($savedId, $metaValues, $_POST, $type);
 
         $post = Posts::find($savedId, $type);
+        $uid = (int) current_user()['id'];
+        Revisions::record($existing ?? [], $post, $uid);
+        Revisions::clearAutosave($savedId, $uid);
         $noun = Posts::TYPES[$type]['singular'];
         flash('success', match ($post['status']) {
             'published' => $existing && $existing['status'] === 'published' ? "Đã cập nhật $noun." : "Đã đăng $noun.",
@@ -277,6 +300,104 @@ final class PostsController
             json_response(['error' => ['message' => $err]], 422);
         }
         json_response(['location' => $url]);
+    }
+
+    /* ---------- Chống mất bài ---------- */
+
+    /** Tự lưu (JSON). Bài mới: tạo bản nháp ngay lần đầu. Bài đã có: cất bản tự lưu riêng, không đụng bài. */
+    public static function autosave(array $p): void
+    {
+        $type = $p['type'] ?? 'post';
+        if (!can(Posts::TYPES[$type]['cap'])) {
+            json_response(['ok' => false, 'message' => 'Không có quyền.'], 403);
+        }
+        $title = (string) ($_POST['title'] ?? '');
+        $content = (string) ($_POST['content'] ?? '');
+        $id = (int) ($_POST['id'] ?? 0);
+        $uid = (int) current_user()['id'];
+        if ($id) {
+            $post = Posts::find($id, $type);
+            if (!$post || !Posts::canEdit($post)) {
+                json_response(['ok' => false, 'message' => 'Không tìm thấy hoặc không có quyền sửa.'], 403);
+            }
+            $at = Revisions::autosave($id, $uid, $title, $content);
+            json_response(['ok' => true, 'id' => $id, 'saved_at' => format_date($at, 'H:i:s')]);
+        }
+        if (trim($title) === '' && trim(strip_tags($content)) === '') {
+            json_response(['ok' => true, 'skipped' => true]);
+        }
+        [$errors, $newId] = Posts::save(['title' => $title, 'content' => $content, 'action' => 'draft'], null, null, $type);
+        if ($errors) {
+            json_response(['ok' => false, 'message' => reset($errors)], 422);
+        }
+        $post = Posts::find($newId, $type);
+        Revisions::heartbeat($newId, $uid);
+        json_response([
+            'ok' => true,
+            'id' => $newId,
+            'created' => true,
+            'slug' => $post['slug'],
+            'loaded_at' => $post['updated_at'],
+            'edit_url' => self::base($type) . "/$newId/edit",
+            'saved_at' => format_date(now_utc(), 'H:i:s'),
+        ]);
+    }
+
+    /** Nhịp giữ khoá mỗi 30 giây; take=1 để giành quyền sửa. */
+    public static function lock(array $p): void
+    {
+        $post = self::editable($p);
+        $other = Revisions::heartbeat((int) $post['id'], (int) current_user()['id'], !empty($_POST['take']));
+        json_response(['ok' => true, 'locked_by' => $other]);
+    }
+
+    public static function unlock(array $p): void
+    {
+        $post = self::editable($p);
+        Revisions::release((int) $post['id'], (int) current_user()['id']);
+        json_response(['ok' => true]);
+    }
+
+    /** Trang lịch sử phiên bản: chọn một bản để so với bản hiện tại. */
+    public static function revisions(array $p): void
+    {
+        $post = self::editable($p);
+        $list = Revisions::forPost((int) $post['id']);
+        $revId = (int) input('rev', 0);
+        // Mặc định so bản đã lưu ngay trước bản hiện tại.
+        if (!$revId) {
+            foreach ($list as $r) {
+                if ($r['kind'] === 'revision' && !($r['title'] === $post['title'] && self::sameContent($r['id'], $post))) {
+                    $revId = (int) $r['id'];
+                    break;
+                }
+            }
+        }
+        $rev = $revId ? Revisions::find($revId, (int) $post['id']) : null;
+        View::render('admin/posts/revisions', [
+            'title' => 'Lịch sử phiên bản',
+            'post' => $post,
+            'type' => $post['type'],
+            'base' => self::base($post['type']),
+            'list' => $list,
+            'rev' => $rev,
+            'titleDiff' => $rev ? \LQ\Core\Diff::words($rev['title'], $post['title']) : null,
+            'diff' => $rev ? \LQ\Core\Diff::lines(\LQ\Core\Diff::htmlLines($rev['content']), \LQ\Core\Diff::htmlLines($post['content'])) : [],
+        ]);
+    }
+
+    public static function restoreRevision(array $p): void
+    {
+        $post = self::editable($p);
+        $rev = Revisions::find((int) $p['rid'], (int) $post['id']) ?? Kernel::notFound();
+        Revisions::restore($post, $rev, (int) current_user()['id']);
+        flash('success', 'Đã khôi phục phiên bản lúc ' . format_date($rev['created_at']) . '.');
+        redirect(self::base($post['type']) . '/' . $post['id'] . '/edit');
+    }
+
+    private static function sameContent(int $revId, array $post): bool
+    {
+        return (string) db()->value('SELECT content FROM {post_revisions} WHERE id = ?', [$revId]) === $post['content'];
     }
 
     private static function editable(array $p): array

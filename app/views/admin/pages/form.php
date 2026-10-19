@@ -13,11 +13,12 @@ $localDate = old('published_at', $localDate);
 $currentTemplate = (string) $v('template', '');
 $currentParent = (int) $v('parent_id', 0);
 ?>
-<form method="post" action="/admin/pages/save" class="editor-layout" data-post-form data-dirty-guard>
+<form method="post" action="/admin/pages/save" class="editor-layout" data-post-form data-dirty-guard data-base="/admin/pages" data-post-id="<?= (int) ($post['id'] ?? 0) ?>">
   <?= csrf_field() ?>
   <?php if (!$isNew): ?><input type="hidden" name="id" value="<?= (int) $post['id'] ?>"><?php endif; ?>
 
   <div class="editor-main">
+    <?= View::capture('admin/posts/_guard', compact('post', 'errors', 'autosave', 'lockedBy')) ?>
     <input class="title-input<?= invalid($errors, 'title') ?>" name="title" value="<?= e($v('title')) ?>" placeholder="Tiêu đề trang" autocomplete="off" data-slug-source>
     <?= field_error($errors, 'title') ?>
 
@@ -49,7 +50,11 @@ $currentParent = (int) $v('parent_id', 0);
         <?php if (!$isNew): ?>
           <dt>Sửa lần cuối</dt><dd><?= e(format_date($post['updated_at'])) ?></dd>
         <?php endif; ?>
+        <dt>Tự lưu</dt><dd data-autosave-status class="muted">—</dd>
       </dl>
+      <?php if ($revisionCount > 0): ?>
+        <a class="link small revisions-link" href="/admin/<?= e(Posts::TYPES[$type]['route']) ?>/<?= (int) $post['id'] ?>/revisions"><?= icon('history') ?> Lịch sử phiên bản (<?= (int) $revisionCount ?>)</a>
+      <?php endif; ?>
       <div class="field">
         <label for="published_at">Ngày đăng</label>
         <input id="published_at" class="input<?= invalid($errors, 'published_at') ?>" type="datetime-local" name="published_at" value="<?= e($localDate) ?>">

@@ -149,6 +149,12 @@ foreach ($timezones as $tz) {
         </div>
       </div>
       <div class="field">
+        <label for="revisions_keep">Số phiên bản giữ lại cho mỗi bài</label>
+        <input id="revisions_keep" name="revisions_keep" type="number" min="0" max="200" class="input<?= invalid($errors, 'revisions_keep') ?>" value="<?= (int) $o('revisions_keep', 25) ?>" style="max-width: 160px">
+        <p class="help">Mỗi lần bấm lưu tạo một phiên bản để xem lại và khôi phục. Nhập 0 để tắt lịch sử phiên bản (vẫn tự lưu).</p>
+        <?= field_error($errors, 'revisions_keep') ?>
+      </div>
+      <div class="field">
         <label for="default_category">Chuyên mục mặc định</label>
         <select id="default_category" name="default_category" class="input<?= invalid($errors, 'default_category') ?>">
           <?php foreach ($categories as $c): ?>

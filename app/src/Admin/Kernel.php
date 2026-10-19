@@ -48,6 +48,11 @@ final class Kernel
             $r->post("$b/{id}/delete", $h('destroy'));
             $r->post("$b/bulk", $h('bulk'));
             $r->post("$b/empty-trash", $h('emptyTrash'));
+            $r->post("$b/autosave", $h('autosave'));
+            $r->post("$b/{id}/lock", $h('lock'));
+            $r->post("$b/{id}/unlock", $h('unlock'));
+            $r->get("$b/{id}/revisions", $h('revisions'));
+            $r->post("$b/{id}/revisions/{rid}/restore", $h('restoreRevision'));
         }
         $r->post('/admin/upload', [PostsController::class, 'upload']);
 

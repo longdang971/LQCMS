@@ -105,7 +105,7 @@ add_action('activate_ten-plugin', function () { /* chạy khi kích hoạt */ })
 
 Xem plugin mẫu `hello-lq` để biết thêm.
 
-**Hook có sẵn:** `post_field_validate` (filter), `post_meta_saved`, `init`, `admin_head`, `admin_footer`, `admin_menu` (filter), `admin_routes`, `role_caps` (filter), `content_save_pre` (filter), `post_saved`, `post_trashed`, `post_restored`, `before_post_deleted`, `term_saved`, `term_deleted`, `user_login`, `user_logout`, `user_registered`, `image_uploaded`, `theme_switched`, `settings_saved`, `settings_general_fields`, `activate_{slug}`, `deactivate_{slug}`.
+**Hook có sẵn:** `post_published`, `post_revision_restored`, `cron_cleanup`, `post_field_validate` (filter), `post_meta_saved`, `init`, `admin_head`, `admin_footer`, `admin_menu` (filter), `admin_routes`, `role_caps` (filter), `content_save_pre` (filter), `post_saved`, `post_trashed`, `post_restored`, `before_post_deleted`, `term_saved`, `term_deleted`, `user_login`, `user_logout`, `user_registered`, `image_uploaded`, `theme_switched`, `settings_saved`, `settings_general_fields`, `activate_{slug}`, `deactivate_{slug}`.
 
 ## Thêm cách phân loại & field cho bài viết
 
@@ -178,6 +178,18 @@ lq_register_page_template('contact', [
 ```
 
 Field thường cũng gắn được vào trang: `lq_add_post_field('seo_title', [..., 'post_type' => ['post', 'page']])`. Admin báo đỏ nếu theme khai báo mẫu mà thiếu tệp. Đổi sang mẫu khác thì field của mẫu cũ không bị kiểm tra và dữ liệu cũ được giữ nguyên.
+
+## Chống mất bài & tác vụ định kỳ
+
+- **Tự lưu** mỗi 30 giây và khi chuyển tab. Bài mới thành bản nháp ngay lần tự lưu đầu; bài đã có thì bản tự lưu cất riêng (mỗi người một bản), không đụng bản đang hiển thị. Mở lại trang soạn sẽ được hỏi khôi phục nếu bản tự lưu mới hơn.
+- **Lịch sử phiên bản**: mỗi lần lưu tạo một phiên bản (giữ N bản, chỉnh ở Cài đặt chung; 0 = tắt). Trang so sánh tô sáng từng từ thêm/bớt, có nút khôi phục.
+- **Khoá chỉnh sửa**: người mở sau được cảnh báo ai đang sửa (chọn quay lại hoặc giành quyền); người bị giành quyền cũng được báo.
+- **Chặn ghi đè âm thầm**: nếu bài đã được lưu bởi người khác sau khi mình mở, lần lưu đầu bị chặn kèm thông báo; lưu lần nữa mới ghi đè.
+- **Tác vụ định kỳ** (`bin/cron.php`, hoặc dự phòng bằng lượt truy cập): đăng bài/trang lên lịch khi tới giờ, dọn dữ liệu cũ. Trạng thái và lệnh crontab ở Cài đặt chung. Plugin thêm tác vụ: `lq_add_cron_task('ten', 3600, fn () => ..., 'Mô tả')`.
+
+```cron
+* * * * * php /var/www/lqcms/bin/cron.php >/dev/null 2>&1
+```
 
 ## Bảng tin dạng widget
 

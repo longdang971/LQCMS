@@ -137,7 +137,7 @@ final class Installer
     private function dropTables(Database $db): void
     {
         $db->pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['media', 'post_meta', 'old_slugs', 'post_terms', 'terms', 'posts', 'options', 'login_attempts', 'user_tokens', 'users'] as $t) {
+        foreach (['post_revisions', 'media', 'post_meta', 'old_slugs', 'post_terms', 'terms', 'posts', 'options', 'login_attempts', 'user_tokens', 'users'] as $t) {
             $db->pdo->exec('DROP TABLE IF EXISTS ' . $db->table($t));
         }
         $db->pdo->exec('SET FOREIGN_KEY_CHECKS = 1');

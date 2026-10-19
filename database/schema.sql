@@ -120,3 +120,17 @@ CREATE TABLE IF NOT EXISTS {media} (
   KEY idx_created (created_at),
   CONSTRAINT fk_media_author FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Lịch sử phiên bản (kind = revision, mỗi lần bấm lưu) và bản tự lưu (kind = autosave, mỗi người một bản).
+CREATE TABLE IF NOT EXISTS {post_revisions} (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  post_id BIGINT UNSIGNED NOT NULL,
+  kind VARCHAR(16) NOT NULL DEFAULT 'revision',
+  title TEXT NOT NULL,
+  content LONGTEXT NOT NULL,
+  author_id BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL,
+  KEY idx_post_kind (post_id, kind, created_at),
+  CONSTRAINT fk_rev_post FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE,
+  CONSTRAINT fk_rev_author FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

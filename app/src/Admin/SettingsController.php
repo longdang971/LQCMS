@@ -74,6 +74,10 @@ final class SettingsController
             $errors['upload_max_mb'] = 'Dung lượng upload từ 1 đến 512 MB.';
         }
 
+        $revKeep = (int) ($in['revisions_keep'] ?? 25);
+        if ($revKeep < 0 || $revKeep > 200) {
+            $errors['revisions_keep'] = 'Số phiên bản từ 0 đến 200.';
+        }
         if ($errors) {
             Session::keepOld($in);
             $_SESSION['_errors'] = $errors;
@@ -95,6 +99,7 @@ final class SettingsController
             'default_category' => $defaultCat,
             'upload_max_mb' => $uploadMax,
             'cron_web_fallback' => !empty($in['cron_web_fallback']),
+            'revisions_keep' => $revKeep,
         ] as $k => $v) {
             update_option($k, $v);
         }
