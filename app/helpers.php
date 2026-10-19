@@ -164,6 +164,12 @@ function post_terms(int $postId, string $taxonomy): array
     return \LQ\Content\Terms::forPost($postId, $taxonomy);
 }
 
+/** Tác vụ định kỳ của plugin/theme, vd. lq_add_cron_task('dong-bo', 3600, fn () => ..., 'Đồng bộ dữ liệu'). */
+function lq_add_cron_task(string $name, int $intervalSeconds, callable $callback, string $label = ''): void
+{
+    \LQ\Core\Cron::add($name, $intervalSeconds, $callback, $label);
+}
+
 /* ---------- URL & request ---------- */
 
 function url(string $path = ''): string

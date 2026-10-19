@@ -22,6 +22,7 @@ final class SettingsController
             'title' => 'Cài đặt chung',
             'timezones' => DateTimeZone::listIdentifiers(),
             'categories' => Terms::tree(Terms::all('category')),
+            'cron' => \LQ\Core\Cron::status(),
             'errors' => self::pullErrors(),
         ]);
     }
@@ -93,6 +94,7 @@ final class SettingsController
             'default_role' => $role,
             'default_category' => $defaultCat,
             'upload_max_mb' => $uploadMax,
+            'cron_web_fallback' => !empty($in['cron_web_fallback']),
         ] as $k => $v) {
             update_option($k, $v);
         }
@@ -205,6 +207,22 @@ final class SettingsController
         do_action('settings_saved', 'permalinks');
         flash('success', 'Đã lưu cấu trúc đường dẫn.');
         redirect('/admin/settings/permalinks');
+    }
+
+    /** Nút "Chạy ngay" trong Cài đặt › Tác vụ định kỳ: chạy mọi tác vụ bất kể lịch. */
+    public static function runCron(): void
+    {
+        Kernel::require('manage_options');
+        $ran = \LQ\Core\Cron::run('manual', true);
+        if ($ran === null) {
+            flash('warning', 'Tác vụ đang được chạy bởi tiến trình khác, thử lại sau ít giây.');
+        } else {
+            $failed = array_keys(array_filter($ran, fn ($r) => !$r['ok']));
+            $failed
+                ? flash('error', 'Có tác vụ lỗi: ' . implode(', ', $failed) . '. Xem chi tiết trong bảng.')
+                : flash('success', 'Đã chạy ' . count($ran) . ' tác vụ. ' . ($ran['publish_scheduled']['result'] ?? ''));
+        }
+        redirect('/admin/settings#tac-vu');
     }
 
     private static function pullErrors(): array

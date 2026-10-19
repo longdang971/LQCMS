@@ -161,9 +161,62 @@ foreach ($timezones as $tz) {
     </div>
   </section>
 
+  <section class="settings-section" id="tac-vu">
+    <div class="settings-label">
+      <h3>Tác vụ định kỳ</h3>
+      <p>Đăng bài đã lên lịch khi tới giờ, dọn dữ liệu cũ, và tác vụ của plugin.</p>
+    </div>
+    <div class="settings-fields" style="max-width: none">
+      <div class="cron-status <?= $cron['system_ok'] ? 'is-ok' : '' ?>">
+        <?= icon($cron['system_ok'] ? 'circle-check' : 'clock') ?>
+        <div>
+          <strong><?= $cron['system_ok'] ? 'Cron hệ thống đang chạy' : ($cron['last_at'] ? 'Đang chạy bằng lượt truy cập' : 'Chưa chạy lần nào') ?></strong>
+          <small><?= $cron['last_at'] ? 'Lần chạy gần nhất: ' . e(format_date(gmdate('Y-m-d H:i:s', $cron['last_at']), 'H:i:s d/m/Y')) . ' (' . e(['cli' => 'cron hệ thống', 'web' => 'lượt truy cập', 'manual' => 'bấm chạy tay'][$cron['last_via']] ?? $cron['last_via']) . ')' : 'Bấm “Chạy ngay” để thử.' ?></small>
+        </div>
+      </div>
+      <div class="field">
+        <label>Lệnh crontab trên VPS (khuyên dùng, chạy mỗi phút)</label>
+        <div class="copy-row"><input class="input mono" readonly value="* * * * * php <?= e(LQ_ROOT) ?>/bin/cron.php >/dev/null 2>&1" data-copy-source><button type="button" class="btn btn-secondary btn-sm" data-copy><?= icon('copy') ?> Sao chép</button></div>
+        <p class="help">Thêm bằng lệnh <code>crontab -e</code> trên máy chủ. Đường dẫn trên là của máy hiện tại, khi đưa lên VPS hãy thay cho đúng.</p>
+      </div>
+      <label class="switch-row boxed">
+        <span>
+          <strong>Chạy dự phòng bằng lượt truy cập</strong>
+          <small class="muted">Khi chưa cài crontab: tự chạy sau khi trả trang, tối đa 1 lần/phút. Có thể tắt khi cron hệ thống đã chạy ổn.</small>
+        </span>
+        <span class="switch">
+          <input type="checkbox" name="cron_web_fallback" value="1"<?= $o('cron_web_fallback', true) ? ' checked' : '' ?>>
+          <span class="switch-ui"></span>
+        </span>
+      </label>
+      <div class="table-wrap boxed" style="padding: 0">
+        <table class="table">
+          <thead><tr><th>Tác vụ</th><th>Chu kỳ</th><th>Lần chạy cuối</th><th>Kết quả</th></tr></thead>
+          <tbody>
+            <?php foreach ($cron['tasks'] as $name => $t): $s = $t['state']; ?>
+              <tr>
+                <td><strong><?= e($t['label']) ?></strong><div class="row-sub"><?= e($name) ?></div></td>
+                <td class="date-cell"><?= $t['interval'] >= 86400 ? 'Mỗi ' . intdiv($t['interval'], 86400) . ' ngày' : ($t['interval'] >= 3600 ? 'Mỗi ' . intdiv($t['interval'], 3600) . ' giờ' : 'Mỗi ' . intdiv($t['interval'], 60) . ' phút') ?></td>
+                <td class="date-cell"><?= isset($s['last']) ? e(format_date(gmdate('Y-m-d H:i:s', $s['last']), 'H:i d/m')) : '—' ?></td>
+                <td>
+                  <?php if (!isset($s['last'])): ?><span class="muted">Chưa chạy</span>
+                  <?php elseif ($s['ok']): ?><span class="badge status-published"><?= e($s['result'] ?: 'Xong') ?></span>
+                  <?php else: ?><span class="badge status-trash" title="<?= e($s['error']) ?>">Lỗi: <?= e(mb_strimwidth((string) $s['error'], 0, 60, '…')) ?></span><?php endif; ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+      <div><button class="btn btn-secondary btn-sm" type="submit" form="cron-run-form"><?= icon('play') ?> Chạy ngay</button></div>
+    </div>
+  </section>
+
   <?php do_action('settings_general_fields'); ?>
 
   <div class="form-footer">
     <button class="btn btn-primary" type="submit">Lưu thay đổi</button>
   </div>
 </form>
+
+<form id="cron-run-form" method="post" action="/admin/settings/cron-run" hidden><?= csrf_field() ?></form>

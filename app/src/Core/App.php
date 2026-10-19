@@ -28,6 +28,7 @@ final class App
         Plugins::loadActive();
         Themes::loadActiveFunctions();
         do_action('init');
+        Cron::maybeRunOnRequest();
 
         if ($path === '/install') {
             redirect(admin_url());

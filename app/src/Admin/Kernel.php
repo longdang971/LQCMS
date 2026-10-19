@@ -80,6 +80,7 @@ final class Kernel
 
         $r->get('/admin/settings', [SettingsController::class, 'general']);
         $r->post('/admin/settings', [SettingsController::class, 'saveGeneral']);
+        $r->post('/admin/settings/cron-run', [SettingsController::class, 'runCron']);
         $r->get('/admin/settings/permalinks', [SettingsController::class, 'permalinks']);
         $r->post('/admin/settings/permalinks', [SettingsController::class, 'savePermalinks']);
 

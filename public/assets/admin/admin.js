@@ -161,6 +161,16 @@
     });
   });
 
+  // Nút "Sao chép" cạnh ô chỉ đọc (vd. lệnh crontab)
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-copy]');
+    if (!btn) return;
+    const src = btn.parentElement.querySelector('[data-copy-source]');
+    (navigator.clipboard ? navigator.clipboard.writeText(src.value) : Promise.reject())
+      .catch(() => { src.select(); document.execCommand('copy'); })
+      .finally(() => toast('success', 'Đã sao chép.'));
+  });
+
   $$('[data-autosubmit]').forEach((el) => el.addEventListener('change', () => el.form && el.form.requestSubmit()));
 
   /* ------------------------------------------------------------------
