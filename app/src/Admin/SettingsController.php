@@ -98,7 +98,6 @@ final class SettingsController
             'default_role' => $role,
             'default_category' => $defaultCat,
             'upload_max_mb' => $uploadMax,
-            'cron_web_fallback' => !empty($in['cron_web_fallback']),
             'revisions_keep' => $revKeep,
         ] as $k => $v) {
             update_option($k, $v);

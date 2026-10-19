@@ -170,31 +170,17 @@ foreach ($timezones as $tz) {
   <section class="settings-section" id="tac-vu">
     <div class="settings-label">
       <h3>Tác vụ định kỳ</h3>
-      <p>Đăng bài đã lên lịch khi tới giờ, dọn dữ liệu cũ, và tác vụ của plugin.</p>
+      <p>Đăng bài đã lên lịch khi tới giờ, dọn dữ liệu cũ, và tác vụ của plugin. Không cần cài cron trên máy chủ.</p>
     </div>
     <div class="settings-fields" style="max-width: none">
-      <div class="cron-status <?= $cron['system_ok'] ? 'is-ok' : '' ?>">
-        <?= icon($cron['system_ok'] ? 'circle-check' : 'clock') ?>
+      <div class="cron-status<?= $cron['last_at'] && time() - $cron['last_at'] < 600 ? ' is-ok' : '' ?>">
+        <?= icon($cron['last_at'] ? 'circle-check' : 'clock') ?>
         <div>
-          <strong><?= $cron['system_ok'] ? 'Cron hệ thống đang chạy' : ($cron['last_at'] ? 'Đang chạy bằng lượt truy cập' : 'Chưa chạy lần nào') ?></strong>
-          <small><?= $cron['last_at'] ? 'Lần chạy gần nhất: ' . e(format_date(gmdate('Y-m-d H:i:s', $cron['last_at']), 'H:i:s d/m/Y')) . ' (' . e(['cli' => 'cron hệ thống', 'web' => 'lượt truy cập', 'manual' => 'bấm chạy tay'][$cron['last_via']] ?? $cron['last_via']) . ')' : 'Bấm “Chạy ngay” để thử.' ?></small>
+          <strong><?= $cron['last_at'] ? 'Tự chạy theo lượt truy cập' : 'Chưa chạy lần nào' ?></strong>
+          <small><?= $cron['last_at'] ? 'Lần chạy gần nhất: ' . e(format_date(gmdate('Y-m-d H:i:s', $cron['last_at']), 'H:i:s d/m/Y')) . ($cron['last_via'] === 'manual' ? ' (bấm chạy tay)' : '') : 'Bấm “Chạy ngay” để thử.' ?></small>
         </div>
       </div>
-      <div class="field">
-        <label>Lệnh crontab trên VPS (khuyên dùng, chạy mỗi phút)</label>
-        <div class="copy-row"><input class="input mono" readonly value="* * * * * php <?= e(LQ_ROOT) ?>/bin/cron.php >/dev/null 2>&1" data-copy-source><button type="button" class="btn btn-secondary btn-sm" data-copy><?= icon('copy') ?> Sao chép</button></div>
-        <p class="help">Thêm bằng lệnh <code>crontab -e</code> trên máy chủ. Đường dẫn trên là của máy hiện tại, khi đưa lên VPS hãy thay cho đúng.</p>
-      </div>
-      <label class="switch-row boxed">
-        <span>
-          <strong>Chạy dự phòng bằng lượt truy cập</strong>
-          <small class="muted">Khi chưa cài crontab: tự chạy sau khi trả trang, tối đa 1 lần/phút. Có thể tắt khi cron hệ thống đã chạy ổn.</small>
-        </span>
-        <span class="switch">
-          <input type="checkbox" name="cron_web_fallback" value="1"<?= $o('cron_web_fallback', true) ? ' checked' : '' ?>>
-          <span class="switch-ui"></span>
-        </span>
-      </label>
+      <p class="help">Mỗi khi có người truy cập website hoặc trang quản trị, hệ thống kiểm tra tối đa 1 lần/phút và chạy các tác vụ đến hạn sau khi đã trả trang, nên người xem không phải chờ. Nếu website không có lượt truy cập nào, bài đã lên lịch sẽ được đăng ở lượt truy cập kế tiếp.</p>
       <div class="table-wrap boxed" style="padding: 0">
         <table class="table">
           <thead><tr><th>Tác vụ</th><th>Chu kỳ</th><th>Lần chạy cuối</th><th>Kết quả</th></tr></thead>

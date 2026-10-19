@@ -6,10 +6,9 @@ namespace LQ\Core;
 use Throwable;
 
 /**
- * Tác vụ định kỳ (đăng bài đã lên lịch, dọn dữ liệu cũ…). Hai cách chạy:
- *  - Cron hệ điều hành (khuyên dùng):  * * * * * php /đường-dẫn/lqcms/bin/cron.php
- *  - Dự phòng bằng lượt truy cập: sau khi trả trang xong, tối đa 1 lần/phút.
- * Dùng GET_LOCK của MariaDB để hai tiến trình không chạy chồng nhau.
+ * Tác vụ định kỳ (đăng bài đã lên lịch, dọn dữ liệu cũ…), chạy theo lượt truy cập:
+ * sau khi trả trang xong, tối đa 1 lần/phút. Không cần cài cron trên máy chủ.
+ * Dùng GET_LOCK của MariaDB để hai request không chạy chồng nhau.
  *
  * Plugin/theme thêm tác vụ: lq_add_cron_task('ten', 3600, fn () => ..., 'Mô tả');
  */
@@ -51,7 +50,7 @@ final class Cron
     /** Gọi ở mỗi request: nếu đã quá 1 phút chưa chạy thì chạy sau khi trả trang. */
     public static function maybeRunOnRequest(): void
     {
-        if (PHP_SAPI === 'cli' || !option('cron_web_fallback', true)) {
+        if (PHP_SAPI === 'cli') {
             return;
         }
         $last = (int) (((array) option('cron_last', []))['at'] ?? 0);
@@ -144,8 +143,6 @@ final class Cron
             'tasks' => $rows,
             'last_at' => isset($last['at']) ? (int) $last['at'] : null,
             'last_via' => $last['via'] ?? null,
-            // Cron hệ thống coi là đang chạy nếu lần chạy CLI gần nhất trong 5 phút.
-            'system_ok' => ($last['via'] ?? '') === 'cli' && time() - (int) ($last['at'] ?? 0) < 300,
         ];
     }
 }

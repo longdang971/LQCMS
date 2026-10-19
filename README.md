@@ -185,11 +185,7 @@ Field thường cũng gắn được vào trang: `lq_add_post_field('seo_title',
 - **Lịch sử phiên bản**: mỗi lần lưu tạo một phiên bản (giữ N bản, chỉnh ở Cài đặt chung; 0 = tắt). Trang so sánh tô sáng từng từ thêm/bớt, có nút khôi phục.
 - **Khoá chỉnh sửa**: người mở sau được cảnh báo ai đang sửa (chọn quay lại hoặc giành quyền); người bị giành quyền cũng được báo.
 - **Chặn ghi đè âm thầm**: nếu bài đã được lưu bởi người khác sau khi mình mở, lần lưu đầu bị chặn kèm thông báo; lưu lần nữa mới ghi đè.
-- **Tác vụ định kỳ** (`bin/cron.php`, hoặc dự phòng bằng lượt truy cập): đăng bài/trang lên lịch khi tới giờ, dọn dữ liệu cũ. Trạng thái và lệnh crontab ở Cài đặt chung. Plugin thêm tác vụ: `lq_add_cron_task('ten', 3600, fn () => ..., 'Mô tả')`.
-
-```cron
-* * * * * php /var/www/lqcms/bin/cron.php >/dev/null 2>&1
-```
+- **Tác vụ định kỳ** chạy theo lượt truy cập (tối đa 1 lần/phút, sau khi đã trả trang; không cần cài cron trên máy chủ): đăng bài/trang lên lịch khi tới giờ, dọn dữ liệu cũ. Trạng thái và nút "Chạy ngay" ở Cài đặt chung. Plugin thêm tác vụ: `lq_add_cron_task('ten', 3600, fn () => ..., 'Mô tả')`.
 
 ## Bảng tin dạng widget
 
