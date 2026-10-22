@@ -46,7 +46,9 @@ final class MediaController
             $editable = \LQ\Content\Posts::canEdit($u);
             $hidden = !$editable && $u['status'] !== 'published';
             return ['id' => $hidden ? 0 : (int) $u['id'], 'title' => $hidden ? '' : $u['title'], 'type' => $u['type'], 'status' => $hidden ? '' : $u['status'],
-                'editable' => $editable, 'hidden' => $hidden];
+                'editable' => $editable, 'hidden' => $hidden,
+                'edit_url' => $hidden ? '' : \LQ\Content\Posts::editUrl($u['type'], (int) $u['id']),
+                'kind' => lq_ucfirst(\LQ\Content\Posts::type($u['type'])['singular'] ?? $u['type'])];
         }, Media::usage($m));
         json_response(['ok' => true, 'item' => $m + ['usage' => $usage, 'can_edit' => Media::canEdit($m)]]);
     }

@@ -27,6 +27,8 @@ final class Kernel
         '/admin/settings' => 'tên website, khẩu hiệu, URL, email quản trị, cho phép đăng ký + vai trò mặc định, múi giờ, định dạng ngày giờ, trang chủ hiển thị, trang danh sách bài, số bài mỗi trang, số phiên bản giữ lại, chuyên mục mặc định, tác vụ định kỳ',
         '/admin/settings/permalinks' => 'cấu trúc đường dẫn bài viết (permalink, slug), tiền tố chuyên mục/thẻ, cấu hình máy chủ (nginx)',
         '/admin/settings/media' => 'dung lượng ảnh tối đa khi tải lên (MB), kích thước ảnh: giữ kích thước gốc hoặc chiều rộng/chiều cao tối đa (px), chất lượng nén JPG/WEBP/AVIF',
+        '/admin/menus' => 'menu điều hướng, menu chính, menu chân trang, thêm trang/chuyên mục/liên kết vào menu, sắp xếp menu con, vị trí menu',
+        '/admin/logs' => 'nhật ký lỗi PHP, lỗi của plugin/theme, lq_log, cảnh báo, xoá nhật ký',
         '/admin/updates' => 'kiểm tra cập nhật, phiên bản LQCMS mới, cập nhật lõi, ghi chú phát hành, khôi phục bản trước',
         '/admin/settings/ai' => 'chọn nhà cung cấp AI (Claude, ChatGPT, Gemini), API key, model, cài thư viện AI',
         '/admin/profile' => 'tên hiển thị, email, đổi mật khẩu, bật/tắt thanh quản trị ngoài website',
@@ -57,8 +59,8 @@ final class Kernel
         $r->post('/admin/dashboard/reset', [DashboardController::class, 'resetLayout']);
         $r->get('/admin/dashboard/widget', [DashboardController::class, 'widget']);
 
-        // Bài viết (/admin/posts) và trang tĩnh (/admin/pages) dùng chung controller.
-        foreach (\LQ\Content\Posts::TYPES as $type => $t) {
+        // Bài viết (/admin/posts), trang tĩnh (/admin/pages) và loại nội dung tuỳ biến dùng chung controller.
+        foreach (\LQ\Content\Posts::types() as $type => $t) {
             $b = '/admin/' . $t['route'];
             $h = fn (string $m) => fn (array $p) => PostsController::{$m}($p + ['type' => $type]);
             $r->get($b, $h('index'));
@@ -115,12 +117,23 @@ final class Kernel
         $r->post('/admin/plugins/deactivate', [PluginsController::class, 'deactivate']);
         $r->post('/admin/plugins/delete', [PluginsController::class, 'destroy']);
         $r->get('/admin/plugin/{slug}', [PluginPages::class, 'render']);
+        // POST chỉ cho đúng slug khai báo bằng lq_add_settings_page — router lấy route khớp ĐẦU TIÊN, mẫu chung
+        // /admin/plugin/{slug} sẽ chiếm mất route POST mà plugin tự đăng ký qua admin_routes cho trang tự viết form.
+        foreach (SettingsPages::slugs() as $slug) {
+            $r->post('/admin/plugin/' . $slug, fn () => SettingsPages::save(['slug' => $slug]));
+        }
 
         $r->get('/admin/settings', [SettingsController::class, 'general']);
         $r->post('/admin/settings', [SettingsController::class, 'saveGeneral']);
         $r->post('/admin/settings/cron-run', [SettingsController::class, 'runCron']);
         $r->get('/admin/settings/permalinks', [SettingsController::class, 'permalinks']);
         $r->get('/admin/settings/media', [SettingsController::class, 'media']);
+        $r->post('/admin/notices/dismiss', [AdminNotices::class, 'dismissRoute']);
+        $r->get('/admin/menus', [MenusController::class, 'index']);
+        $r->post('/admin/menus/save', [MenusController::class, 'save']);
+        $r->post('/admin/menus/{id}/delete', [MenusController::class, 'delete']);
+        $r->get('/admin/logs', [LogsController::class, 'index']);
+        $r->post('/admin/logs/clear', [LogsController::class, 'clear']);
         $r->get('/admin/updates', [UpdatesController::class, 'index']);
         $r->post('/admin/updates/check', [UpdatesController::class, 'check']);
         $r->post('/admin/updates/apply', [UpdatesController::class, 'apply']);
@@ -186,6 +199,17 @@ final class Kernel
             flash('error', 'Phiên làm việc đã hết hạn, vui lòng thử lại.');
             redirect_back('/admin');
         }
+        // Đã đăng nhập, qua kiểm tra CSRF: chỗ cho theme/plugin đăng ký thông báo (lq_admin_notice) theo người dùng hiện tại.
+        if (!in_array($path, self::PUBLIC_ROUTES, true)) {
+            if (can('manage_options')) {
+                foreach (\LQ\Core\Permalink::collisions() as $c) {
+                    AdminNotices::add('lq-collision-' . $c['segment'], $c['title'] . " ở /{$c['segment']}/ không vào được vì {$c['owner']} của theme/plugin cũng dùng đoạn đầu URL này. Hãy đổi slug của nó.", [
+                        'type' => 'warning', 'title' => 'Trùng đường dẫn.', 'dismissible' => false,
+                    ]);
+                }
+            }
+            do_action('admin_init');
+        }
 
         if ($match === null) {
             self::notFound();
@@ -235,16 +259,24 @@ final class Kernel
                 ['label' => 'Chuyên mục', 'url' => '/admin/categories', 'cap' => 'manage_terms'],
                 ['label' => 'Thẻ', 'url' => '/admin/tags', 'cap' => 'manage_terms'],
                 ...array_values(array_map(fn ($t) => ['label' => $t['label'], 'url' => '/admin/' . $t['route'], 'cap' => $t['cap']],
-                    array_filter(\LQ\Content\Taxonomies::custom(), fn ($t) => $t['show_in_menu']))),
+                    array_filter(\LQ\Content\Taxonomies::forType('post'), fn ($t) => $t['show_in_menu']))),
             ]],
             ['label' => 'Trang', 'icon' => 'files', 'url' => '/admin/pages', 'cap' => 'edit_pages', 'children' => [
                 ['label' => 'Tất cả trang', 'url' => '/admin/pages', 'cap' => 'edit_pages', 'exact' => true, 'match' => ['#^/admin/pages/\\d+/edit$#']],
                 ['label' => 'Thêm trang mới', 'url' => '/admin/pages/new', 'cap' => 'edit_pages', 'exact' => true],
             ]],
+            // Loại nội dung tuỳ biến (lq_register_post_type) đứng sau Trang.
+            ...array_values(array_map(fn ($t) => ['label' => $t['label'], 'icon' => $t['icon'], 'url' => '/admin/' . $t['route'], 'cap' => $t['cap'], 'children' => [
+                ['label' => 'Tất cả', 'url' => '/admin/' . $t['route'], 'cap' => $t['cap'], 'exact' => true, 'match' => ['#^/admin/' . preg_quote($t['route'], '#') . '/\\d+/edit$#']],
+                ['label' => 'Thêm mới', 'url' => '/admin/' . $t['route'] . '/new', 'cap' => $t['cap'], 'exact' => true],
+                ...array_values(array_map(fn ($x) => ['label' => $x['label'], 'url' => '/admin/' . $x['route'], 'cap' => $x['cap']],
+                    array_filter(\LQ\Content\Taxonomies::forType($t['key']), fn ($x) => $x['show_in_menu'] && !in_array('post', $x['post_type'], true)))),
+            ]], array_filter(\LQ\Content\Posts::customTypes(), fn ($t) => $t['show_in_menu']))),
             ['label' => 'Media', 'icon' => 'images', 'url' => '/admin/media', 'cap' => 'upload_files'],
             ['section' => 'Hệ thống'],
             ['label' => 'Giao diện', 'icon' => 'palette', 'url' => '/admin/themes', 'cap' => 'manage_themes', 'children' => [
                 ['label' => 'Theme', 'url' => '/admin/themes', 'cap' => 'manage_themes', 'exact' => true],
+                ['label' => 'Menu', 'url' => '/admin/menus', 'cap' => 'manage_themes'],
                 ...(\LQ\Core\ThemeFiles::editingAllowed() ? [['label' => 'Chỉnh sửa', 'url' => '/admin/themes/editor', 'cap' => 'edit_themes']] : []),
             ]],
             ['label' => 'Plugin', 'icon' => 'puzzle', 'url' => '/admin/plugins', 'cap' => 'manage_plugins', 'badge' => count(array_filter(\LQ\Core\Plugins::all(), fn ($p) => !$p['active'])) ?: null], // số plugin đã cài nhưng chưa bật
@@ -254,6 +286,7 @@ final class Kernel
                 ['label' => 'Đường dẫn tĩnh', 'url' => '/admin/settings/permalinks', 'cap' => 'manage_options'],
                 ['label' => 'Media', 'url' => '/admin/settings/media', 'cap' => 'manage_options'],
                 ['label' => 'MCP', 'url' => '/admin/settings/ai', 'cap' => 'manage_options'],
+                ['label' => 'Nhật ký', 'url' => '/admin/logs', 'cap' => 'manage_options'],
                 ['label' => 'Cập nhật', 'url' => '/admin/updates', 'cap' => 'manage_options'],
             ]],
             ['label' => 'Hồ sơ', 'icon' => 'user-round', 'url' => '/admin/profile', 'cap' => 'access_admin'],

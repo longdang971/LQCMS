@@ -244,8 +244,8 @@ final class ChatProposals
             }
         }
         $type = $existing['type'] ?? (($data['type'] ?? 'post') === 'page' ? 'page' : 'post');
-        if (!$existing && !can(Posts::TYPES[$type]['cap'])) {
-            return [null, 'Tài khoản của bạn không có quyền tạo ' . Posts::TYPES[$type]['singular'] . '.'];
+        if (!$existing && !can(Posts::type($type)['cap'] ?? 'manage_options')) {
+            return [null, 'Tài khoản của bạn không có quyền tạo ' . (Posts::type($type)['singular'] ?? $type) . '.'];
         }
         $title = trim((string) ($data['title'] ?? ($existing['title'] ?? '')));
         if ($title === '') {

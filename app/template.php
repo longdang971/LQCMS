@@ -160,13 +160,17 @@ function lq_autop(string $text): string
         if ($chunk === '') {
             continue;
         }
-        $out[] = preg_match($block, $chunk) || preg_match('#^\x01\d+\x01$#', $chunk)
+        // \x02n\x02: kết quả shortcode đang giữ chỗ (Shortcodes::hold) đứng riêng một đoạn — không bọc <p>.
+        $out[] = preg_match($block, $chunk) || preg_match('#^\x01\d+\x01$#', $chunk) || preg_match('#^\x02\d+\x02$#', $chunk)
             ? $chunk
             : '<p>' . str_replace("\n", "<br>\n", $chunk) . '</p>';
     }
     return preg_replace_callback('#\x01(\d+)\x01#', fn ($m) => $keep[(int) $m[1]], implode("\n", $out));
 }
 add_filter('the_content', 'lq_autop', 5);
+// Shortcode chạy trước autop, kết quả giữ chỗ tới sau autop (xem LQ\Front\Shortcodes::hold).
+add_filter('the_content', [\LQ\Front\Shortcodes::class, 'hold'], 4);
+add_filter('the_content', [\LQ\Front\Shortcodes::class, 'release'], 6);
 
 /** Tóm tắt tự cắt từ nội dung (bỏ thẻ HTML), mặc định 40 từ — đổi qua filter excerpt_length. */
 function get_the_excerpt(array|int|null $post = null, ?int $words = null): string
@@ -176,7 +180,7 @@ function get_the_excerpt(array|int|null $post = null, ?int $words = null): strin
         return '';
     }
     $words ??= (int) apply_filters('excerpt_length', 40);
-    $html = preg_replace('#<(script|style)\b[^>]*>.*?</\1>#is', '', (string) $p['content']);
+    $html = preg_replace('#<(script|style)\b[^>]*>.*?</\1>#is', '', \LQ\Front\Shortcodes::strip((string) $p['content']));
     // Thẻ khối thành khoảng trắng để chữ của hai đoạn liền nhau không dính vào nhau.
     $html = preg_replace('#</?(p|div|h[1-6]|li|ul|ol|blockquote|br|hr|tr|td|th|figure|figcaption|section|article|pre|table)\b[^>]*>#i', ' ', (string) $html);
     $text = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string) $html), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
@@ -592,6 +596,80 @@ function is_singular(?string $type = null): bool
     return Front::is('singular') && ($type === null || (Front::main()->queried['type'] ?? '') === $type);
 }
 
+/* ---------- Menu điều hướng ---------- */
+
+/** Vị trí $location đã được gán menu (có mục) chưa. */
+function has_nav_menu(string $location): bool
+{
+    return (bool) get_nav_menu_items($location);
+}
+
+/**
+ * Cây mục của menu ở vị trí $location, để theme tự vẽ: mỗi mục có label, url, new_tab, current (đang xem),
+ * current_ancestor (một mục con đang được xem), type, classes, children. Mục trỏ tới nội dung chưa đăng / đã xoá bị bỏ.
+ */
+function get_nav_menu_items(string $location): array
+{
+    $menu = \LQ\Content\Menus::forLocation($location);
+    if (!$menu) {
+        return [];
+    }
+    $map = function (array $items) use (&$map): array {
+        return array_map(fn ($it) => [
+            'id' => $it['id'], 'type' => $it['type'], 'label' => $it['label_resolved'], 'url' => $it['url_resolved'],
+            'new_tab' => $it['new_tab'], 'classes' => $it['classes'], 'current' => $it['current'],
+            'current_ancestor' => $it['current_ancestor'], 'children' => $map($it['children']),
+        ], $items);
+    };
+    return (array) apply_filters('nav_menu_items', $map(\LQ\Content\Menus::resolve($menu['items'])), $location);
+}
+
+/**
+ * In menu ở một vị trí: <ul class="menu"> với li.menu-item (is-current, is-current-ancestor, has-children) và ul.sub-menu.
+ * $args: location (bắt buộc), class (mặc định "menu"), id, depth (0 = mọi cấp), fallback (callable chạy khi vị trí chưa có
+ * menu — vd. in danh sách trang), echo (mặc định true; false = trả chuỗi).
+ */
+function lq_nav_menu(array $args = []): string
+{
+    $items = get_nav_menu_items((string) ($args['location'] ?? ''));
+    if (!$items) {
+        $html = is_callable($args['fallback'] ?? null) ? (string) ($args['fallback'])($args) : '';
+    } else {
+        // Dạng mục sau filter nav_menu_items → dạng nội bộ của Menus::html.
+        $back = function (array $list) use (&$back): array {
+            return array_map(fn ($it) => [
+                'type' => (string) ($it['type'] ?? 'custom'), 'url_resolved' => (string) ($it['url'] ?? ''), 'label_resolved' => (string) ($it['label'] ?? ''),
+                'new_tab' => !empty($it['new_tab']), 'classes' => (string) ($it['classes'] ?? ''), 'current' => !empty($it['current']),
+                'current_ancestor' => !empty($it['current_ancestor']), 'children' => $back((array) ($it['children'] ?? [])),
+            ], $list);
+        };
+        $html = \LQ\Content\Menus::html($back($items), $args);
+    }
+    if ($args['echo'] ?? true) {
+        echo $html;
+    }
+    return $html;
+}
+
+/** Trang danh sách của loại nội dung tuỳ biến (/<base>/); $type để hỏi đúng loại, vd. is_post_type_archive('su_kien'). */
+function is_post_type_archive(?string $type = null): bool
+{
+    return Front::is('post_type_archive') && ($type === null || (Front::main()->queried['key'] ?? '') === $type);
+}
+
+/** Loại nội dung của bài (post, page hoặc loại tuỳ biến). */
+function get_post_type(array|int|null $post = null): string
+{
+    return (string) (get_post($post)['type'] ?? '');
+}
+
+/** URL trang danh sách của loại nội dung tuỳ biến, '' nếu loại không có trang danh sách. */
+function get_post_type_archive_link(string $type): string
+{
+    $t = Posts::type($type);
+    return $t && !$t['builtin'] && $t['public'] && $t['has_archive'] ? site_url('/' . $t['base'] . '/') : '';
+}
+
 function is_archive(): bool
 {
     return Front::is('archive');
@@ -671,6 +749,19 @@ function is_page_template(?string $template = null): bool
     return $template === null ? $current !== '' : $current === $template;
 }
 
+/** Đang ở một route riêng (lq_add_route) — $pattern để hỏi đúng route, vd. is_route('/su-kien/{slug}'). */
+function is_route(?string $pattern = null): bool
+{
+    $r = \LQ\Front\Routes::current();
+    return $r !== null && ($pattern === null || $r['pattern'] === '/' . trim($pattern, '/'));
+}
+
+/** Tham số của route đang chạy, vd. get_route_param('slug'). */
+function get_route_param(string $name, ?string $default = null): ?string
+{
+    return \LQ\Front\Routes::current()['params'][$name] ?? $default;
+}
+
 function is_logged_in(): bool
 {
     return current_user() !== null;
@@ -700,6 +791,7 @@ function get_the_archive_title(): string
         is_month() => sprintf('Tháng %d/%04d', $o['month'], $o['year']),
         is_year() => 'Năm ' . $o['year'],
         is_search() => 'Kết quả tìm kiếm: “' . get_search_query() . '”',
+        is_post_type_archive() => (string) ($o['label'] ?? 'Lưu trữ'),
         default => 'Lưu trữ',
     };
     return (string) apply_filters('archive_title', $title, $o);
@@ -718,7 +810,7 @@ function the_archive_title(string $before = '', string $after = ''): void
 /** Mô tả của term đang xem (nhập ở trang quản lý chuyên mục/thẻ). */
 function get_the_archive_description(): string
 {
-    return (is_category() || is_tag() || is_tax()) ? trim((string) (get_queried_object()['description'] ?? '')) : '';
+    return (is_category() || is_tag() || is_tax() || is_post_type_archive()) ? trim((string) (get_queried_object()['description'] ?? '')) : '';
 }
 
 function the_archive_description(string $before = '', string $after = ''): void
@@ -926,7 +1018,10 @@ function get_body_class(array|string $extra = []): array
         $c[] = 'blog';
     }
     if (is_single()) {
-        array_push($c, 'single', 'postid-' . $o['id']);
+        array_push($c, 'single', 'single-' . ($o['type'] ?? 'post'), 'postid-' . $o['id']);
+    }
+    if (is_post_type_archive()) {
+        $c[] = 'post-type-archive-' . ($o['key'] ?? '');
     }
     if (is_page()) {
         array_push($c, 'page', 'page-id-' . $o['id']);
@@ -996,7 +1091,7 @@ function edit_post_link(string $text = 'Sửa', string $before = '', string $aft
 {
     $p = get_post($post);
     if ($p && Posts::canEdit($p)) {
-        $route = Posts::TYPES[$p['type']]['route'] ?? 'posts';
+        $route = Posts::type((string) $p['type'])['route'] ?? 'posts';
         echo $before . '<a class="edit-link" href="' . e(admin_url("$route/{$p['id']}/edit")) . '">' . e($text) . '</a>' . $after;
     }
 }

@@ -150,7 +150,7 @@ final class AIChatController
             'post_status' => $n['status'],
             'old' => $p['old'] ? ['title' => $p['old']['title'], 'content' => $p['old']['content'], 'status' => $p['old']['status']] : null,
             'new' => ['title' => $n['title'], 'content' => $n['content'], 'status' => $n['status']],
-            'open_url' => $p['post_id'] ? '/admin/' . ($n['type'] === 'page' ? 'pages' : 'posts') . "/{$p['post_id']}/edit" : null,
+            'open_url' => $p['post_id'] ? (\LQ\Content\Posts::editUrl($n['type'], (int) $p['post_id']) ?: null) : null,
         ];
     }
 

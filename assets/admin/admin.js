@@ -200,6 +200,16 @@
     if (t?.dataset.page) document.title = (subject ? subject + ' — ' : '') + t.dataset.page + ' · ' + t.dataset.site;
   }
 
+  // Thông báo của theme/plugin (lq_admin_notice): nút ẩn nhớ theo người dùng ở máy chủ.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-notice-dismiss]');
+    if (!btn) return;
+    const box = btn.closest('[data-notice]');
+    box.remove();
+    const body = new URLSearchParams({ id: box.dataset.notice, _token: csrf() });
+    fetch('/admin/notices/dismiss', { method: 'POST', body, headers: { Accept: 'application/json', 'X-CSRF-Token': csrf() } }).catch(() => {});
+  });
+
   window.LQ = Object.assign(window.LQ || {}, { toast, confirm: confirmDialog, slugify, csrf, isMac, mod: isMac ? '⌘' : 'Ctrl ', setSubject });
 
   // data-off-when="tên checkbox": khối bị làm mờ + khoá khi checkbox đó đang bật (vd. "Giữ kích thước gốc").

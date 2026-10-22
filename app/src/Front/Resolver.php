@@ -46,6 +46,7 @@ final class Resolver
             ?? self::search($path)
             ?? self::home($path)
             ?? self::prefixedTaxonomy($path)
+            ?? self::postType($path)
             ?? self::author($path)
             ?? self::page($path)
             ?? self::rootTaxonomy($path)
@@ -104,6 +105,10 @@ final class Resolver
         if (!$post) {
             return self::notFound();
         }
+        // Loại nội dung không công khai (lq_register_post_type public = false): chỉ người sửa được mới xem trước.
+        if (!(Posts::type((string) $post['type'])['public'] ?? false)) {
+            return Posts::canEdit($post) ? self::singular($post) : self::notFound();
+        }
         // Đang dùng permalink đẹp (hoặc là trang tĩnh) -> chuyển về URL chuẩn, trừ khi đang xem trước bài chưa đăng.
         $canonical = Posts::permalink($post);
         if ($post['status'] === 'published' && parse_url($canonical, PHP_URL_QUERY) === null) {
@@ -157,6 +162,33 @@ final class Resolver
     }
 
     /** Chuyên mục/taxonomy bỏ tiền tố: /tin-tuc/cong-nghe/ */
+    /** Loại nội dung tuỳ biến: /<base>/ (danh sách, nếu has_archive) và /<base>/<slug>/ (chi tiết). */
+    private static function postType(string $path): ?Query
+    {
+        foreach (Posts::customTypes() as $key => $t) {
+            if (!$t['public'] || !str_starts_with($path . '/', '/' . $t['base'] . '/')) {
+                continue;
+            }
+            // Tiền tố đã có chủ: không khớp thì là 404, không dò tiếp.
+            $rest = trim(substr($path, strlen($t['base']) + 1), '/');
+            if ($rest === '') {
+                if (!$t['has_archive']) {
+                    return self::notFound();
+                }
+                $q = new Query(['type' => $key, 'page' => self::$paged]);
+                $q->is = ['archive' => true, 'post_type_archive' => true, 'paged' => self::$paged > 1];
+                $q->queried = $t + ['url' => site_url('/' . $t['base'] . '/')];
+                return $q;
+            }
+            if (!preg_match('#^[a-z0-9-]+$#D', $rest)) {
+                return self::notFound();
+            }
+            $post = self::visible(db()->row('SELECT * FROM {posts} WHERE type = ? AND slug = ?', [$key, $rest]));
+            return $post ? self::singular($post) : self::notFound();
+        }
+        return null;
+    }
+
     private static function rootTaxonomy(string $path): ?Query
     {
         foreach (Taxonomies::all() as $key => $t) {
@@ -188,7 +220,9 @@ final class Resolver
             }
             self::redirect(Terms::url($term), true);
         }
-        $q = new Query(['tax' => [$taxonomy => (int) $term['id']], 'page' => self::$paged]);
+        // Taxonomy gắn cho loại tuỳ biến: liệt kê đúng các loại đó (chỉ loại công khai), không mặc định chỉ bài viết.
+        $types = array_values(array_intersect($info['post_type'], Posts::publicTypes())) ?: 'post';
+        $q = new Query(['type' => $types, 'tax' => [$taxonomy => (int) $term['id']], 'page' => self::$paged]);
         $flag = match ($taxonomy) {
             'category' => 'category',
             'tag' => 'tag',

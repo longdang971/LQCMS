@@ -58,7 +58,7 @@ $term = null;
               <td class="hide-sm mono muted"><?= e($t['slug']) ?></td>
               <td class="hide-md muted clamp"><?= e($t['description'] ?: '—') ?></td>
               <td class="num">
-                <a class="count-pill" href="/admin/posts?term=<?= $id ?>"><?= (int) $t['post_count'] ?></a>
+                <a class="count-pill" href="/admin/<?= e(\LQ\Content\Posts::type($info['post_type'][0] ?? 'post')['route'] ?? 'posts') ?>?term=<?= $id ?>"><?= (int) $t['post_count'] ?></a>
               </td>
               <td class="col-actions">
                 <div class="row-actions">

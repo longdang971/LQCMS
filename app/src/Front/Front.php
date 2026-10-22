@@ -23,12 +23,27 @@ final class Front
             echo 'Theme đang kích hoạt không tồn tại. Vào /admin/themes để chọn theme khác.';
             return;
         }
-        self::$main = Resolver::resolve($path);
+        // Route riêng của theme/plugin (lq_add_route) xét trước nội dung.
+        self::$main = Query::fromPosts([]);
+        self::$main->is = ['route' => true];
+        $routed = Routes::dispatch($path, [AdminBar::class, 'boot']);
+        if ($routed === true) {
+            return;
+        }
+        if ($routed === false) {
+            // Route báo "không có" (vd. /su-kien/{slug} với slug không tồn tại): trang 404 của theme.
+            self::$main = Query::fromPosts([]);
+            self::$main->is = ['404' => true];
+        } else {
+            self::$main = Resolver::resolve($path);
+        }
         if (self::$main->posts && (self::$main->is['singular'] ?? false)) {
             self::$post = self::$main->posts[0];
         }
         do_action('template_redirect', self::$main);
-        AdminBar::boot();
+        if ($routed === null) {
+            AdminBar::boot();
+        }
 
         if (self::$main->is['404'] ?? false) {
             http_response_code(404);
@@ -98,7 +113,12 @@ final class Front
             }
             array_push($list, "page-{$o['slug']}.php", "page-{$o['id']}.php", 'page.php', 'singular.php');
         } elseif ($is['single'] ?? false) {
-            array_push($list, "single-{$o['slug']}.php", 'single.php', 'singular.php');
+            // Loại nội dung tuỳ biến: single-<loại>-<slug>.php → single-<loại>.php → single.php (như WordPress).
+            $pt = (string) ($o['type'] ?? 'post');
+            $list = $pt === 'post' ? ["single-{$o['slug']}.php"] : ["single-$pt-{$o['slug']}.php", "single-$pt.php"];
+            array_push($list, 'single.php', 'singular.php');
+        } elseif ($is['post_type_archive'] ?? false) {
+            $list = ["archive-{$o['key']}.php", 'archive.php'];
         } elseif ($is['home'] ?? false) {
             $list = ($is['front_page'] ?? false) ? ['front-page.php', 'home.php'] : ['home.php'];
         } elseif ($is['category'] ?? false) {

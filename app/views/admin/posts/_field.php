@@ -1,10 +1,17 @@
 <?php
 defined('LQ_ROOT') || exit;
-/** Vẽ một field tuỳ biến. Biến: $f (định nghĩa), $value, $errors */
-$name = 'meta[' . $f['key'] . ']';
-$id = 'meta-' . $f['key'];
-$err = $errors['meta.' . $f['key']] ?? null;
+/** Vẽ một field tuỳ biến. Biến: $f (định nghĩa), $value, $errors, $prefix (tuỳ chọn: "meta" cho bài viết, "settings" cho trang cài đặt plugin) */
+$prefix ??= 'meta';
+$name = $prefix . '[' . $f['key'] . ']';
+$id = $prefix . '-' . $f['key'];
+$err = $errors[$prefix . '.' . $f['key']] ?? null;
 $inv = $err ? ' is-invalid' : '';
+// Field bí mật (API key… của trang cài đặt plugin): ô mật khẩu, KHÔNG in giá trị đã lưu ra HTML; để trống = giữ nguyên.
+// Đặt trước $attrs: closure chụp $f lúc khai báo.
+if (!empty($f['secret'])) {
+    $f['placeholder'] = $value !== '' && $value !== null ? 'Đã lưu — để trống nếu giữ nguyên' : $f['placeholder'];
+    $value = '';
+}
 $attrs = function () use ($f) {
     $a = '';
     foreach (['min', 'max', 'step'] as $k) {
@@ -17,7 +24,7 @@ $attrs = function () use ($f) {
     }
     return $a . ($f['placeholder'] !== '' ? ' placeholder="' . e($f['placeholder']) . '"' : '') . ($f['ai_role'] ? ' data-ai-role="' . e($f['ai_role']) . '"' : '');
 };
-$inputType = ['text' => 'text', 'number' => 'number', 'url' => 'url', 'email' => 'email', 'date' => 'date', 'color' => 'color'][$f['type']] ?? 'text';
+$inputType = !empty($f['secret']) ? 'password' : (['text' => 'text', 'number' => 'number', 'url' => 'url', 'email' => 'email', 'date' => 'date', 'color' => 'color'][$f['type']] ?? 'text');
 
 /** Một ô nhập đơn (dùng cho cả field thường và từng dòng của field lặp). */
 $single = function (string $inName, mixed $v, string $inId = '') use ($f, $inv, $attrs, $inputType): string {
@@ -34,8 +41,8 @@ $single = function (string $inName, mixed $v, string $inId = '') use ($f, $inv, 
         $v = (string) ($v ?: '#000000');
         return '<div class="color-field"><input type="color" name="' . e($inName) . '" value="' . e($v) . '"' . ($inId ? ' id="' . e($inId) . '"' : '') . '><code data-color-code>' . e($v) . '</code></div>';
     }
-    return '<input class="input' . ($f['type'] === 'url' ? ' mono' : '') . $inv . '" type="' . $inputType . '" name="' . e($inName) . '" value="' . e(is_scalar($v) ? (string) $v : '') . '"'
-        . ($inId ? ' id="' . e($inId) . '"' : '') . $attrs() . '>';
+    return '<input class="input' . ($f['type'] === 'url' || $inputType === 'password' ? ' mono' : '') . $inv . '" type="' . $inputType . '" name="' . e($inName) . '" value="' . e(is_scalar($v) ? (string) $v : '') . '"'
+        . ($inId ? ' id="' . e($inId) . '"' : '') . ($inputType === 'password' ? ' autocomplete="new-password"' : '') . $attrs() . '>';
 };
 ?>
 <div class="field meta-field<?= $f['width'] === 'half' ? ' is-half' : '' ?>" data-field="<?= e($f['key']) ?>">

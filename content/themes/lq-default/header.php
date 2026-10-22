@@ -54,7 +54,7 @@ $lqd_image = is_singular() ? get_the_post_thumbnail_url($lqd_obj) : '';
 
     <nav class="main-nav" id="main-nav" aria-label="Menu chính">
       <?php foreach (lqd_nav_items() as $item): ?>
-        <a href="<?= e($item['url']) ?>"<?= $item['current'] ? ' aria-current="page"' : '' ?>><?= e($item['label']) ?></a>
+        <a href="<?= e($item['url']) ?>"<?= $item['current'] ? ' aria-current="page"' : '' ?><?= !empty($item['new_tab']) ? ' target="_blank" rel="noopener"' : '' ?>><?= e($item['label']) ?></a>
       <?php endforeach; ?>
     </nav>
 

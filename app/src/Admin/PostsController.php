@@ -17,7 +17,7 @@ use LQ\Core\Uploads;
 use LQ\Core\View;
 
 /**
- * Bài viết và trang tĩnh dùng chung controller; route truyền 'type' => 'post' | 'page'.
+ * Bài viết, trang tĩnh và loại nội dung tuỳ biến (lq_register_post_type) dùng chung controller; route truyền 'type'.
  */
 final class PostsController
 {
@@ -27,13 +27,19 @@ final class PostsController
     private static function type(array $p): string
     {
         $type = $p['type'] ?? 'post';
-        Kernel::require(Posts::TYPES[$type]['cap']);
+        Kernel::require(self::info($type)['cap']);
         return $type;
+    }
+
+    /** Thông tin loại nội dung (nhãn, route, quyền…); loại không còn đăng ký (plugin vừa tắt) → 404. */
+    private static function info(string $type): array
+    {
+        return Posts::type($type) ?? Kernel::notFound();
     }
 
     private static function base(string $type): string
     {
-        return '/admin/' . Posts::TYPES[$type]['route'];
+        return '/admin/' . self::info($type)['route'];
     }
 
     public static function index(array $p = []): void
@@ -66,15 +72,17 @@ final class PostsController
         }
 
         $page = max(1, (int) input('page', 1));
-        $result = Posts::paginate($filters, $page, self::PER_PAGE);
+        $result = Posts::paginate($filters, $page, self::PER_PAGE, $type);
         View::render('admin/posts/index', [
-            'title' => 'Bài viết',
+            'title' => self::info($type)['label'],
+            'type' => $type,
+            'typeInfo' => self::info($type),
             'filters' => $filters,
             'page' => $page,
             'pages' => (int) max(1, ceil($result['total'] / self::PER_PAGE)),
             'perPage' => self::PER_PAGE,
-            'categories' => Terms::tree(Terms::all('category')),
-            'months' => Posts::months(),
+            'categories' => $type === 'post' ? Terms::tree(Terms::all('category')) : [],
+            'months' => Posts::months($type),
         ] + $result);
     }
 
@@ -138,29 +146,38 @@ final class PostsController
             return;
         }
 
-        $structure = (string) option('permalink_structure', '/%postname%/');
-        // Khung permalink để JS ghép slug vào khi gõ tiêu đề, vd. "https://site.vn/2026/10/" + slug + "/"
-        $sample = Permalink::build($structure, [
-            'id' => $post['id'] ?? 0,
-            'slug' => '__SLUG__',
-            'published_at' => $post['published_at'] ?? null,
-            'created_at' => $post['created_at'] ?? null,
-        ]);
+        $info = self::info($type);
+        $isPost = $type === 'post';
+        if ($isPost) {
+            $structure = (string) option('permalink_structure', '/%postname%/');
+            // Khung permalink để JS ghép slug vào khi gõ tiêu đề, vd. "https://site.vn/2026/10/" + slug + "/"
+            $sample = Permalink::build($structure, [
+                'id' => $post['id'] ?? 0,
+                'slug' => '__SLUG__',
+                'published_at' => $post['published_at'] ?? null,
+                'created_at' => $post['created_at'] ?? null,
+            ]);
+            $pattern = $structure === '' ? null : site_url($sample);
+        } else {
+            // Loại tuỳ biến: /<base>/<slug>/ (không công khai thì không có URL ngoài website).
+            $pattern = $info['public'] ? site_url('/' . $info['base'] . '/__SLUG__/') : null;
+        }
         View::render('admin/posts/form', $common + [
-            'title' => $post ? 'Sửa bài viết' : 'Viết bài mới',
+            'title' => $post ? 'Sửa ' . $info['singular'] : ($isPost ? 'Viết bài mới' : 'Thêm ' . $info['singular'] . ' mới'),
             'subject' => $post ? ($post['title'] ?: '(Không tiêu đề)') : '',
-            'categories' => Terms::tree(Terms::all('category')),
-            'selectedCats' => $post ? array_map('intval', array_column(Terms::forPost((int) $post['id'], 'category'), 'id')) : [(int) option('default_category')],
-            'tags' => $post ? array_column(Terms::forPost((int) $post['id'], 'tag'), 'name') : [],
-            'popularTags' => db()->all(
+            'typeInfo' => $info,
+            'categories' => $isPost ? Terms::tree(Terms::all('category')) : [],
+            'selectedCats' => $isPost && $post ? array_map('intval', array_column(Terms::forPost((int) $post['id'], 'category'), 'id')) : [(int) option('default_category')],
+            'tags' => $isPost && $post ? array_column(Terms::forPost((int) $post['id'], 'tag'), 'name') : [],
+            'popularTags' => !$isPost ? [] : db()->all(
                 "SELECT t.name, COUNT(pt.post_id) c FROM {terms} t LEFT JOIN {post_terms} pt ON pt.term_id = t.id
                  WHERE t.taxonomy = 'tag' GROUP BY t.id ORDER BY c DESC, t.name LIMIT 8"
             ),
-            'permalinkPattern' => $structure === '' ? null : site_url($sample),
+            'permalinkPattern' => $pattern,
             'customTax' => array_map(fn ($t) => $t + [
                 'selected' => $post ? Terms::forPost((int) $post['id'], $t['key']) : [],
                 'tree' => $t['hierarchical'] ? Terms::tree(Terms::all($t['key'])) : [],
-            ], Taxonomies::custom()),
+            ], Taxonomies::forType($type)),
         ]);
     }
 
@@ -198,7 +215,7 @@ final class PostsController
         $loadedAt = input_str('loaded_at');
         if ($existing && $loadedAt !== '' && $existing['updated_at'] > $loadedAt && !$fieldErrors) {
             $by = db()->value("SELECT u.display_name FROM {post_revisions} r JOIN {users} u ON u.id = r.author_id WHERE r.post_id = ? AND r.kind = 'revision' ORDER BY r.id DESC LIMIT 1", [$id]);
-            $fieldErrors['_conflict'] = ($by ? "$by" : 'Người khác') . ' đã lưu ' . Posts::TYPES[$type]['singular'] . ' này lúc ' . format_date($existing['updated_at'], 'H:i') . ' sau khi bạn mở. Nội dung của bạn vẫn còn trong form: bấm lưu lần nữa để ghi đè, hoặc xem Lịch sử phiên bản trước.';
+            $fieldErrors['_conflict'] = ($by ? "$by" : 'Người khác') . ' đã lưu ' . self::info($type)['singular'] . ' này lúc ' . format_date($existing['updated_at'], 'H:i') . ' sau khi bạn mở. Nội dung của bạn vẫn còn trong form: bấm lưu lần nữa để ghi đè, hoặc xem Lịch sử phiên bản trước.';
             $_POST['loaded_at'] = $existing['updated_at'];
         }
 
@@ -220,7 +237,7 @@ final class PostsController
         $uid = (int) current_user()['id'];
         Revisions::record($existing ?? [], $post, $uid);
         Revisions::clearAutosave($savedId, $uid);
-        $noun = Posts::TYPES[$type]['singular'];
+        $noun = self::info($type)['singular'];
         flash('success', match ($post['status']) {
             'published' => $existing && $existing['status'] === 'published' ? "Đã cập nhật $noun." : "Đã đăng $noun.",
             'scheduled' => 'Đã lên lịch đăng lúc ' . format_date($post['published_at']) . '.',
@@ -242,7 +259,7 @@ final class PostsController
     {
         $post = self::editable($p);
         Posts::restore((int) $post['id']);
-        flash('success', 'Đã khôi phục ' . Posts::TYPES[$post['type']]['singular'] . '.');
+        flash('success', 'Đã khôi phục ' . self::info($post['type'])['singular'] . '.');
         redirect_back(self::base($post['type']) . '?status=trash');
     }
 
@@ -250,28 +267,28 @@ final class PostsController
     {
         $post = self::editable($p);
         Posts::destroy((int) $post['id']);
-        flash('success', 'Đã xoá vĩnh viễn ' . Posts::TYPES[$post['type']]['singular'] . '.');
+        flash('success', 'Đã xoá vĩnh viễn ' . self::info($post['type'])['singular'] . '.');
         redirect(self::base($post['type']) . '?status=trash');
     }
 
     public static function emptyTrash(array $p = []): void
     {
         $type = self::type($p);
-        if ($type === 'post') {
+        if ($type !== 'page') {
             Kernel::require('edit_others_posts');
         }
         $ids = db()->column("SELECT id FROM {posts} WHERE type = ? AND status = 'trash'", [$type]);
         foreach ($ids as $id) {
             Posts::destroy((int) $id);
         }
-        flash('success', 'Đã dọn sạch thùng rác (' . count($ids) . ' ' . Posts::TYPES[$type]['singular'] . ').');
+        flash('success', 'Đã dọn sạch thùng rác (' . count($ids) . ' ' . self::info($type)['singular'] . ').');
         redirect(self::base($type));
     }
 
     public static function bulk(array $p = []): void
     {
         $type = self::type($p);
-        $noun = Posts::TYPES[$type]['singular'];
+        $noun = self::info($type)['singular'];
         $action = input_str('bulk_action');
         $ids = array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])));
         if (!$ids || !in_array($action, ['trash', 'restore', 'delete', 'publish', 'draft'], true)) {
@@ -322,7 +339,7 @@ final class PostsController
     public static function autosave(array $p): void
     {
         $type = $p['type'] ?? 'post';
-        if (!can(Posts::TYPES[$type]['cap'])) {
+        if (!can(self::info($type)['cap'])) {
             json_response(['ok' => false, 'message' => 'Không có quyền.'], 403);
         }
         $title = (string) ($_POST['title'] ?? '');

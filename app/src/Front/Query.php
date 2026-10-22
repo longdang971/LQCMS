@@ -17,7 +17,7 @@ use LQ\Core\Slug;
  *   lq_reset_postdata();
  *
  * Tham số (đều tuỳ chọn):
- *   type       'post' | 'page' | 'any' | ['post', 'page']      (mặc định 'post')
+ *   type       'post' | 'page' | loại tuỳ biến | 'any' | mảng    (mặc định 'post')
  *   per_page   số bài mỗi trang, -1 = tất cả                     (mặc định option posts_per_page)
  *   page       trang thứ mấy, bắt đầu từ 1
  *   offset     bỏ qua N bài đầu (khi dùng thì không tính theo page)
@@ -146,7 +146,8 @@ final class Query
         $params = [];
 
         $type = $a['type'] ?? 'post';
-        $types = $type === 'any' ? array_keys(Posts::TYPES) : array_values(array_intersect((array) $type, array_keys(Posts::TYPES)));
+        // 'any' = các loại có trang công khai (bài viết, trang, loại tuỳ biến public); chỉ định rõ thì nhận mọi loại đã đăng ký.
+        $types = $type === 'any' ? Posts::publicTypes() : array_values(array_intersect((array) $type, array_keys(Posts::types())));
         if (!$types) {
             return [['0 = 1'], []];
         }

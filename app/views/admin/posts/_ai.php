@@ -14,7 +14,8 @@ if (!\LQ\AI\AI::enabled()) {
   <div class="ai-box-actions">
     <button type="button" class="btn btn-secondary btn-sm" data-ai-write-run><?= icon('pen-line') ?> Viết nội dung từ tiêu đề</button>
     <button type="button" class="btn btn-secondary btn-sm" data-ai-suggest-run><?= icon('wand-sparkles') ?> Gợi ý tiêu đề, sapo, SEO</button>
-    <?php if (($post['type'] ?? 'post') !== 'page'): ?>
+    <?php // Chuyên mục/thẻ chỉ có ở bài viết (không ở trang, loại nội dung tuỳ biến). ?>
+    <?php if (($type ?? $post['type'] ?? 'post') === 'post'): ?>
       <button type="button" class="btn btn-secondary btn-sm" data-ai-taxonomy-run><?= icon('tags') ?> Gợi ý chuyên mục, thẻ</button>
     <?php endif; ?>
     <button type="button" class="btn btn-secondary btn-sm" data-ai-links-run><?= icon('link') ?> Gợi ý liên kết nội bộ</button>

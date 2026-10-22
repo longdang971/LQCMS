@@ -104,6 +104,23 @@ function apply_filters(string $hook, mixed $value, mixed ...$args): mixed
  * $callback in ra HTML của trang (đã nằm trong layout admin).
  * $keywords: nội dung chính của trang (vd. "thời gian giữ cache, loại trừ URL") — để thanh ⌘K và trợ lý AI tìm đúng trang.
  */
+/**
+ * Trang cài đặt cho plugin/theme: chỉ khai báo các ô, lõi vẽ form, kiểm tra, báo lỗi và lưu. Trang nằm ở nhóm Plugin của menu.
+ * $args: title, menu_title, icon, cap (mặc định manage_options), description, keywords,
+ * sections => [['title' => …, 'description' => …, 'fields' => [key => khai báo như lq_add_post_field]]] (hoặc 'fields' => […] nếu chỉ một nhóm).
+ * Kiểu ô: như field bài viết + 'secret' (API key: ô mật khẩu, lưu mã hoá, để trống = giữ nguyên). Đọc: lq_get_setting($slug, $key).
+ */
+function lq_add_settings_page(string $slug, array $args): void
+{
+    \LQ\Admin\SettingsPages::add($slug, $args);
+}
+
+/** Giá trị đã lưu ở trang cài đặt của plugin (secret đã giải mã); chưa lưu thì 'default' của ô, rồi $default. */
+function lq_get_setting(string $slug, string $key, mixed $default = null): mixed
+{
+    return \LQ\Admin\SettingsPages::get($slug, $key, $default);
+}
+
 function lq_add_admin_page(string $slug, string $title, callable $callback, string $icon = 'puzzle', string $cap = 'manage_options', string $keywords = ''): void
 {
     \LQ\Admin\PluginPages::add($slug, $title, $callback, $icon, $cap, $keywords);
@@ -134,6 +151,32 @@ function lq_add_dashboard_widget(string $id, string $title, callable $render, ar
  * Thêm một cách phân loại bài viết, vd. "Diễn viên". Term dùng chung giữa các bài, có trang quản lý riêng
  * trong menu Bài viết và ô chọn trong form bài viết (dạng chip như Thẻ, hoặc checklist nếu hierarchical).
  */
+/** Vị trí menu của theme (functions.php), vd. lq_register_nav_menu('primary', 'Menu chính'). Admin gán menu ở Giao diện › Menu. */
+function lq_register_nav_menu(string $location, string $label): void
+{
+    \LQ\Content\Menus::registerLocation($location, $label);
+}
+
+/** Nhiều vị trí cùng lúc: lq_register_nav_menus(['primary' => 'Menu chính', 'footer' => 'Chân trang']). */
+function lq_register_nav_menus(array $locations): void
+{
+    foreach ($locations as $loc => $label) {
+        \LQ\Content\Menus::registerLocation((string) $loc, (string) $label);
+    }
+}
+
+/**
+ * Loại nội dung tuỳ biến (sản phẩm, sự kiện…) — có mục riêng trên menu admin, form soạn như bài viết (không có chuyên mục/thẻ),
+ * URL /<base>/<slug>/ và trang danh sách /<base>/. $args: label, singular, base (tiền tố URL, mặc định = route), route (đường dẫn admin),
+ * icon, cap (mặc định edit_posts), description, public (có trang ngoài website, mặc định true), has_archive (mặc định true),
+ * show_in_menu. Gắn taxonomy: lq_register_taxonomy(…, ['post_type' => ['su_kien']]); gắn field: lq_add_post_field(…, ['post_type' => ['su_kien']]).
+ * Template: single-<loại>.php, archive-<loại>.php (rồi single.php / archive.php). Truy vấn: lq_query(['type' => 'su_kien']).
+ */
+function lq_register_post_type(string $key, array $args): void
+{
+    \LQ\Content\Posts::registerType($key, $args);
+}
+
 function lq_register_taxonomy(string $key, array $args): void
 {
     \LQ\Content\Taxonomies::register($key, $args);
@@ -186,6 +229,87 @@ function lq_add_cron_task(string $name, int $intervalSeconds, callable $callback
  * Endpoint AJAX /ajax/{action} cho theme/plugin. $callback(array $input) trả mảng (JSON), chuỗi (HTML) hoặc null.
  * $opts: public, method (POST|GET|ANY), cap, csrf, rate — xem LQ\Front\Ajax.
  */
+/**
+ * Đường dẫn riêng ngoài website, xét trước bài/trang/chuyên mục: lq_add_route('/sitemap.xml', fn () => …, ['content_type' => 'application/xml']).
+ * Tham số: '/su-kien/{slug}', '/don/{id:\d+}' → callback(array $params). Trả về: chuỗi (in ra), mảng (JSON), false (trang 404
+ * của theme), hoặc null/true khi đã tự echo (vd. get_header() … get_footer()). $opts: methods (mặc định ['GET']), content_type.
+ */
+function lq_add_route(string $pattern, callable $callback, array $opts = []): void
+{
+    \LQ\Front\Routes::add($pattern, $callback, $opts);
+}
+
+function lq_remove_route(string $pattern): void
+{
+    \LQ\Front\Routes::remove($pattern);
+}
+
+/**
+ * Shortcode trong nội dung bài: [ten a="1"] hoặc [ten]nội dung[/ten]. $callback(array $atts, ?string $content, string $tag): string
+ * — trả HTML (tự escape dữ liệu người dùng). Tên: chữ thường, số, _ -. Lỗi trong callback được ghi Nhật ký, chỗ đó in rỗng.
+ */
+function lq_add_shortcode(string $tag, callable $callback): void
+{
+    \LQ\Front\Shortcodes::add($tag, $callback);
+}
+
+function lq_remove_shortcode(string $tag): void
+{
+    \LQ\Front\Shortcodes::remove($tag);
+}
+
+/** Chạy shortcode trong một chuỗi bất kỳ (the_content đã tự chạy) — vd. nội dung lồng bên trong một shortcode khác. */
+function lq_do_shortcode(string $content): string
+{
+    return \LQ\Front\Shortcodes::run($content);
+}
+
+/** Bỏ shortcode đã đăng ký khỏi chuỗi (giữ chữ bên trong [ten]…[/ten]). */
+function lq_strip_shortcodes(string $content): string
+{
+    return \LQ\Front\Shortcodes::strip($content);
+}
+
+function lq_has_shortcode(string $content, string $tag): bool
+{
+    return \LQ\Front\Shortcodes::has($content, $tag);
+}
+
+/** Gộp tham số shortcode với mặc định: chỉ giữ khoá có trong $defaults (khoá lạ bị bỏ). */
+function lq_shortcode_atts(array $defaults, array $atts): array
+{
+    $out = [];
+    foreach ($defaults as $k => $v) {
+        $out[$k] = array_key_exists($k, $atts) ? $atts[$k] : $v;
+    }
+    return $out;
+}
+
+/**
+ * Thông báo cố định đầu trang quản trị (vd. "Plugin X cần nhập API key"). Gọi mỗi request khi điều kiện còn đúng,
+ * thường trong add_action('admin_init', …). $opts: type (info|success|warning|error), title, link ['label', 'url'],
+ * dismissible (mặc định true — ẩn theo từng người, đổi nội dung thì hiện lại), cap (mặc định manage_options),
+ * screens (tiền tố URL admin, vd. ['/admin', '/admin/plugins']; bỏ trống = mọi trang).
+ */
+function lq_admin_notice(string $id, string $message, array $opts = []): void
+{
+    \LQ\Admin\AdminNotices::add($id, $message, $opts);
+}
+
+function lq_remove_admin_notice(string $id): void
+{
+    \LQ\Admin\AdminNotices::remove($id);
+}
+
+/**
+ * Ghi nhật ký cho theme/plugin — xem ở Cài đặt › Nhật ký. $level: info | warning | error.
+ * $context: dữ liệu kèm theo (mảng, ghi dạng JSON ngắn). Nguồn (plugin/theme nào) và vị trí gọi được ghi tự động.
+ */
+function lq_log(string $message, string $level = 'info', array $context = []): void
+{
+    \LQ\Core\ErrorLog::log($message, $level, $context);
+}
+
 function lq_add_ajax(string $action, callable $callback, array $opts = []): void
 {
     \LQ\Front\Ajax::register($action, $callback, $opts);

@@ -18,11 +18,103 @@ final class Posts
         'trash' => 'Thùng rác',
     ];
 
-    /** Kiểu nội dung: bài viết và trang tĩnh dùng chung bảng posts. */
+    /** Kiểu nội dung có sẵn: bài viết và trang tĩnh dùng chung bảng posts (loại tuỳ biến: registerType / types()). */
     public const TYPES = [
         'post' => ['label' => 'Bài viết', 'singular' => 'bài viết', 'route' => 'posts', 'cap' => 'edit_posts'],
         'page' => ['label' => 'Trang', 'singular' => 'trang', 'route' => 'pages', 'cap' => 'edit_pages'],
     ];
+    /** Đường dẫn admin lõi đã dùng — loại nội dung / taxonomy tuỳ biến không được trùng. */
+    public const RESERVED_ROUTES = ['posts', 'pages', 'media', 'categories', 'tags', 'themes', 'plugins', 'plugin', 'settings', 'profile',
+        'login', 'register', 'logout', 'upload', 'api', 'dashboard', 'quick-draft', 'terms', 'updates', 'logs', 'notices', 'ai', 'menus', 'users'];
+
+    /** @var array<string, array> loại nội dung tuỳ biến (lq_register_post_type) */
+    private static array $custom = [];
+
+    /**
+     * Đăng ký loại nội dung tuỳ biến (sản phẩm, sự kiện…): dùng chung bảng posts, form soạn của bài viết (không có
+     * chuyên mục/thẻ — gắn taxonomy tuỳ biến bằng 'post_type'), URL /<base>/<slug>/ và trang danh sách /<base>/.
+     */
+    public static function registerType(string $key, array $args): void
+    {
+        if (!preg_match('/^[a-z][a-z0-9_]{1,19}$/', $key) || isset(self::TYPES[$key]) || in_array($key, ['any', 'attachment', 'revision', 'menu'], true)) {
+            throw new \InvalidArgumentException("Tên loại nội dung không hợp lệ hoặc đã có: \"$key\" (chữ thường, số, gạch dưới; 2–20 ký tự).");
+        }
+        $route = (string) ($args['route'] ?? str_replace('_', '-', $key));
+        if (!preg_match('/^[a-z0-9-]+$/', $route) || in_array($route, self::RESERVED_ROUTES, true) || Taxonomies::byRoute($route)) {
+            throw new \InvalidArgumentException("Đường dẫn admin \"$route\" của loại nội dung $key không hợp lệ hoặc đã được dùng.");
+        }
+        foreach (self::$custom as $k => $t) {
+            if ($k !== $key && $t['route'] === $route) {
+                throw new \InvalidArgumentException("Đường dẫn admin \"$route\" đã được loại nội dung $k dùng.");
+            }
+        }
+        $base = trim((string) ($args['base'] ?? $route), '/');
+        if ($base === '' || ($err = Permalink::validateBase($base))) {
+            throw new \InvalidArgumentException("Tiền tố URL \"$base\" của loại nội dung $key: " . ($err ?? 'không được để trống.'));
+        }
+        // Đoạn đầu URL không được trùng tiền tố của taxonomy hay loại nội dung khác (Resolver khớp cái nào trước thì cái kia 404).
+        $first = explode('/', $base)[0];
+        foreach (Taxonomies::all() as $tk => $tx) {
+            if ($tx['base'] !== '' && explode('/', $tx['base'])[0] === $first) {
+                throw new \InvalidArgumentException("Tiền tố URL \"$base\" của loại nội dung $key trùng tiền tố của taxonomy $tk.");
+            }
+        }
+        foreach (self::$custom as $k => $t) {
+            if ($k !== $key && explode('/', $t['base'])[0] === $first) {
+                throw new \InvalidArgumentException("Tiền tố URL \"$base\" của loại nội dung $key trùng loại $k.");
+            }
+        }
+        $label = (string) ($args['label'] ?? ucfirst($key));
+        self::$custom[$key] = [
+            'key' => $key,
+            'label' => $label,
+            'singular' => (string) ($args['singular'] ?? mb_strtolower($label)),
+            'route' => $route,
+            'base' => $base,
+            'icon' => (string) ($args['icon'] ?? 'file-text'),
+            'cap' => (string) ($args['cap'] ?? 'edit_posts'),
+            'description' => (string) ($args['description'] ?? ''),
+            'public' => (bool) ($args['public'] ?? true),          // có trang chi tiết ngoài website
+            'has_archive' => (bool) ($args['has_archive'] ?? true), // có trang danh sách /<base>/
+            'show_in_menu' => (bool) ($args['show_in_menu'] ?? true),
+            'builtin' => false,
+        ];
+    }
+
+    /** Mọi loại nội dung (có sẵn + tuỳ biến), cùng một dạng thông tin. */
+    public static function types(): array
+    {
+        $out = [];
+        foreach (self::TYPES as $k => $t) {
+            $out[$k] = $t + ['key' => $k, 'base' => '', 'icon' => $k === 'page' ? 'files' : 'file-text', 'description' => '',
+                'public' => true, 'has_archive' => false, 'show_in_menu' => false, 'builtin' => true];
+        }
+        return $out + self::$custom;
+    }
+
+    public static function type(string $key): ?array
+    {
+        return self::types()[$key] ?? null;
+    }
+
+    /** Link sửa trong admin, vd. /admin/su-kien/12/edit; '' khi loại đó không còn đăng ký (plugin đã tắt). */
+    public static function editUrl(string $type, int $id): string
+    {
+        $t = self::type($type);
+        return $t ? "/admin/{$t['route']}/$id/edit" : '';
+    }
+
+    /** Loại nội dung tuỳ biến (không gồm bài viết, trang). */
+    public static function customTypes(): array
+    {
+        return self::$custom;
+    }
+
+    /** Loại có trang công khai ngoài website (tìm kiếm "any" gồm những loại này). */
+    public static function publicTypes(): array
+    {
+        return array_keys(array_filter(self::types(), fn ($t) => $t['public']));
+    }
 
     public static function find(int $id, string $type = 'post'): ?array
     {
@@ -39,7 +131,8 @@ final class Posts
         if (($post['type'] ?? 'post') === 'page') {
             return can('edit_pages');
         }
-        if (!can('edit_posts')) {
+        // Bài viết và loại tuỳ biến: quyền của loại (mặc định edit_posts), bài của người khác cần edit_others_posts.
+        if (!can(self::type((string) ($post['type'] ?? 'post'))['cap'] ?? 'edit_posts')) {
             return false;
         }
         return can('edit_others_posts') || (int) $post['author_id'] === (int) $u['id'];
@@ -70,7 +163,7 @@ final class Posts
         $where = ['p.type = ?'];
         $params = [$type];
 
-        if ($type === 'post' && !can('edit_others_posts')) {
+        if ($type !== 'page' && !can('edit_others_posts')) {
             $where[] = 'p.author_id = ?';
             $params[] = (int) current_user()['id'];
         }
@@ -187,6 +280,7 @@ final class Posts
     public static function save(array $in, ?array $existing, ?string $featuredImage, string $type = 'post'): array
     {
         $isPage = $type === 'page';
+        $isPost = $type === 'post'; // chuyên mục & thẻ chỉ dành cho bài viết
         $user = current_user();
         $id = $existing ? (int) $existing['id'] : 0;
         $title = trim((string) ($in['title'] ?? ''));
@@ -242,19 +336,22 @@ final class Posts
                 $errors['template'] = 'Mẫu trang không tồn tại trong theme đang dùng.';
             }
             // Trang cấp gốc nằm ở /slug/: không được trùng đường dẫn hệ thống / tiền tố chuyên mục, thẻ…
-            if (!$parent && $slug !== '' && in_array($slug, \LQ\Core\Permalink::takenRootSegments(), true)) {
+            // Trang có sẵn giữ nguyên slug + cấp gốc thì bỏ qua: plugin đăng ký route/loại nội dung trùng sau này
+            // không được làm trang cũ hết lưu được (admin thấy cảnh báo trùng đường dẫn thay vào đó).
+            $unchanged = $existing && $existing['slug'] === $slug && empty($existing['parent_id']);
+            if (!$parent && $slug !== '' && !$unchanged && in_array($slug, \LQ\Core\Permalink::takenRootSegments(), true)) {
                 $errors['slug'] = "Slug \"$slug\" trùng đường dẫn hệ thống hoặc tiền tố chuyên mục/thẻ. Hãy chọn slug khác.";
             }
             $pageData = ['parent_id' => $parent ?: null, 'menu_order' => (int) ($in['menu_order'] ?? 0), 'template' => $template !== '' ? $template : null];
         }
 
         // Chuyên mục (chỉ bài viết): chỉ nhận ID tồn tại; không chọn gì thì dùng mặc định.
-        $catIds = $isPage ? [] : array_map('intval', (array) ($in['categories'] ?? []));
+        $catIds = !$isPost ? [] : array_map('intval', (array) ($in['categories'] ?? []));
         $catIds = $catIds ? db()->column(
             "SELECT id FROM {terms} WHERE taxonomy = 'category' AND id IN (" . Database::placeholders($catIds) . ')',
             $catIds
         ) : [];
-        if (!$isPage && !$catIds && ($def = (int) option('default_category'))) {
+        if ($isPost && !$catIds && ($def = (int) option('default_category'))) {
             $catIds = [$def];
         }
 
@@ -270,7 +367,8 @@ final class Posts
 
         $data = [
             'title' => $title,
-            'slug' => self::uniqueSlug($slug ?: 'khong-tieu-de', $id, $type, !$isPage || empty($pageData['parent_id'])),
+            // Kiểm chéo đoạn đầu URL chỉ với bài viết / trang cấp gốc; loại tuỳ biến nằm dưới /<base>/ nên không đụng.
+            'slug' => self::uniqueSlug($slug ?: 'khong-tieu-de', $id, $type, $isPost || ($isPage && empty($pageData['parent_id']))),
             'content' => $content,
             'status' => $status,
             'published_at' => $publishedAt,
@@ -283,12 +381,12 @@ final class Posts
 
         // Term theo từng taxonomy. Chuyên mục & thẻ luôn được thay; taxonomy tuỳ biến chỉ thay khi form có gửi
         // (tránh xoá mất dữ liệu khi theme/plugin khai báo taxonomy đó đang tắt).
-        // Trang tĩnh không dùng chuyên mục/thẻ.
-        $termInput = $isPage ? [] : [
+        // Trang tĩnh không dùng chuyên mục/thẻ; loại tuỳ biến chỉ có taxonomy tuỳ biến gắn với nó ('post_type').
+        $termInput = !$isPost ? [] : [
             'category' => ['ids' => $catIds],
             'tag' => ['names' => self::splitNames($in['tags'] ?? '')],
         ];
-        foreach ($isPage ? [] : Taxonomies::custom() as $key => $tax) {
+        foreach ($isPage ? [] : Taxonomies::forType($type) as $key => $tax) {
             if (!array_key_exists($key, (array) ($in['tax_input'] ?? []))) {
                 continue;
             }
@@ -379,7 +477,13 @@ final class Posts
     /** URL công khai của bài theo cấu trúc permalink hiện tại. */
     public static function permalink(array $post): string
     {
-        if (($post['type'] ?? 'post') === 'page') {
+        $type = (string) ($post['type'] ?? 'post');
+        if ($type !== 'post' && $type !== 'page') {
+            // Loại tuỳ biến: /<base>/<slug>/ ; không công khai thì không có URL.
+            $t = self::type($type);
+            return $t && $t['public'] ? site_url('/' . $t['base'] . '/' . $post['slug'] . '/') : '';
+        }
+        if ($type === 'page') {
             if ((int) $post['id'] === (int) option('page_on_front', 0)) {
                 return site_url('/');
             }

@@ -36,7 +36,72 @@ final class ErrorLog
         });
     }
 
-    public static function add(string $level, string $msg, string $file, int $line): void
+    /**
+     * Theme/plugin ghi nhật ký (lq_log): $level info | warning | error. Vị trí là nơi gọi lq_log, nguồn (plugin/theme nào)
+     * dò theo đường dẫn tệp đó. $context (mảng) nối vào cuối dạng JSON ngắn.
+     */
+    public static function log(string $message, string $level = 'info', array $context = []): void
+    {
+        $level = in_array($level, ['info', 'warning', 'error'], true) ? $level : 'info';
+        $file = '';
+        $line = 0;
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 4) as $f) {
+            $fp = (string) ($f['file'] ?? '');
+            if ($fp !== '' && $fp !== __FILE__ && !str_ends_with($fp, '/app/helpers.php')) {
+                [$file, $line] = [$fp, (int) ($f['line'] ?? 0)];
+                break;
+            }
+        }
+        if ($context) {
+            // Nhật ký chỉ giữ dòng đầu của thông điệp: gắn context vào sau dòng đầu, không thì mất.
+            $message = (strtok($message, "\n") ?: $message) . ' ' . mb_substr((string) json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE), 0, 500);
+        }
+        self::add($level, $message, $file, $line, self::sourceOf($file));
+    }
+
+    /** "plugin:<slug>" / "theme:<slug>" theo đường dẫn tệp, "" = lõi. */
+    public static function sourceOf(string $file): string
+    {
+        $file = str_replace('\\', '/', $file);
+        foreach (self::sourceDirs() as $d => $source) {
+            if (str_starts_with($file, "$d/")) {
+                return $source;
+            }
+        }
+        return '';
+    }
+
+    /** @var ?array<string,string> thư mục (đường dẫn thật) → "plugin:slug" / "theme:slug" */
+    private static ?array $sourceDirs = null;
+
+    /**
+     * Thư mục từng plugin/theme, cả đường dẫn qua content/ lẫn đường dẫn thật: plugin cài bằng symlink (đang phát triển ở chỗ khác)
+     * thì PHP báo tệp theo đường dẫn thật, không nằm dưới content/plugins/.
+     */
+    private static function sourceDirs(): array
+    {
+        if (self::$sourceDirs === null) {
+            self::$sourceDirs = [];
+            foreach (['plugin' => Plugins::dir(), 'theme' => Themes::dir()] as $type => $dir) {
+                foreach (glob("$dir/*", GLOB_ONLYDIR) ?: [] as $sub) {
+                    foreach (array_unique([str_replace('\\', '/', $sub), str_replace('\\', '/', (string) realpath($sub))]) as $d) {
+                        if ($d !== '') {
+                            self::$sourceDirs[$d] ??= "$type:" . basename($sub);
+                        }
+                    }
+                }
+            }
+        }
+        return self::$sourceDirs;
+    }
+
+    /** Xoá toàn bộ nhật ký (Cài đặt › Nhật ký). */
+    public static function clear(): void
+    {
+        @file_put_contents(self::file(), self::HEADER, LOCK_EX);
+    }
+
+    public static function add(string $level, string $msg, string $file, int $line, ?string $source = null): void
     {
         // Thư viện AI (storage/ai/*/vendor) hay báo deprecated — không phải lỗi của site.
         if (str_contains($file, '/storage/ai/') || isset(self::$seen[$key = md5("$msg|$file|$line")])) {
@@ -63,6 +128,8 @@ final class ErrorLog
             'file' => str_starts_with($file, $root) ? substr($file, strlen($root)) : $file,
             'line' => $line,
             'url' => PHP_SAPI === 'cli' ? 'cli' : (string) ($_SERVER['REQUEST_URI'] ?? ''),
+            // Lỗi PHP thường cũng gắn nguồn theo tệp gây lỗi: biết ngay plugin/theme nào.
+            'source' => $source ?? self::sourceOf($file),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . "\n", FILE_APPEND | LOCK_EX);
     }
 

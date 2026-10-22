@@ -261,7 +261,8 @@ JS . "</script>\n";
         $type = $in['type'] ?? 'post';
         $sitePerPage = (int) option('posts_per_page', 10);
         $args = [
-            'type' => $type === 'any' ? 'any' : array_values(array_intersect($scalars($type), array_keys(Posts::TYPES))),
+            // AJAX công khai: chỉ loại có trang công khai (loại tuỳ biến public = false không lộ qua đây).
+            'type' => $type === 'any' ? 'any' : array_values(array_intersect($scalars($type), Posts::publicTypes())),
             'page' => max(1, (int) ($in['page'] ?? 1)),
             // Cài đặt cho tới 100 bài/trang: trần phải ≥ số đó, không thì "Tải thêm" (gửi per_page của trang) lấy lệch trang, trùng bài.
             'per_page' => max(1, min(max(self::MAX_PER_PAGE, $sitePerPage), (int) ($in['per_page'] ?? $sitePerPage))),

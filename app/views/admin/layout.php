@@ -113,6 +113,7 @@ foreach ($menu as $item) {
           <code>mv <?= e(LQ_CONFIG) ?> <?= e(LQ_CONFIG_OUTSIDE) ?></code>
         </div></div>
       <?php endif; ?>
+      <?= \LQ\Admin\AdminNotices::render(request_path()) ?>
       <?= $content ?>
     </main>
 

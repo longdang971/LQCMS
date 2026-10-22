@@ -4,6 +4,10 @@ use LQ\Content\Posts;
 use LQ\Core\View;
 
 $isNew = $post === null;
+// Dùng chung cho bài viết và loại nội dung tuỳ biến (lq_register_post_type): chuyên mục/thẻ chỉ có ở bài viết.
+$isPost = $type === 'post';
+$base = '/admin/' . $typeInfo['route'];
+$noun = $typeInfo['singular'];
 $status = $post['status'] ?? 'draft';
 $v = fn (string $k, mixed $d = '') => old($k, $post[$k] ?? $d);
 $oldCats = old('categories', null);
@@ -16,22 +20,25 @@ if (!empty($post['published_at'])) {
 }
 $localDate = old('published_at', $localDate);
 ?>
-<form method="post" action="/admin/posts/save" enctype="multipart/form-data" class="editor-layout" data-post-form data-dirty-guard data-base="/admin/posts" data-post-id="<?= (int) ($post['id'] ?? 0) ?>">
+<form method="post" action="<?= e($base) ?>/save" enctype="multipart/form-data" class="editor-layout" data-post-form data-dirty-guard data-base="<?= e($base) ?>" data-post-id="<?= (int) ($post['id'] ?? 0) ?>">
   <?= csrf_field() ?>
   <?php if (!$isNew): ?><input type="hidden" name="id" value="<?= (int) $post['id'] ?>"><?php endif; ?>
 
   <div class="editor-main">
     <?= View::capture('admin/posts/_guard', compact('post', 'errors', 'autosave', 'lockedBy')) ?>
-    <input class="title-input<?= invalid($errors, 'title') ?>" name="title" value="<?= e($v('title')) ?>" placeholder="Tiêu đề bài viết" autocomplete="off" data-slug-source>
+    <input class="title-input<?= invalid($errors, 'title') ?>" name="title" value="<?= e($v('title')) ?>" placeholder="Tiêu đề <?= e($noun) ?>" autocomplete="off" data-slug-source>
     <?= field_error($errors, 'title') ?>
 
     <div class="permalink-row">
       <?php if ($permalinkPattern): ?>
         <?php [$before, $after] = explode('__SLUG__', $permalinkPattern) + [1 => '']; ?>
         <span><?= e($before) ?></span><input class="slug-input<?= invalid($errors, 'slug') ?>" name="slug" value="<?= e($v('slug')) ?>" placeholder="slug-bai-viet" data-slug-target spellcheck="false" aria-label="Slug"><span><?= e($after) ?></span>
-      <?php else: ?>
+      <?php elseif ($isPost): ?>
         <span><?= e(site_url('/?p=' . ($post['id'] ?? '…'))) ?></span>
         <input type="hidden" name="slug" value="<?= e($v('slug')) ?>" data-slug-target>
+      <?php else: ?>
+        <?php // Loại không công khai: không có URL ngoài website, slug chỉ để nhận diện. ?>
+        <input class="slug-input<?= invalid($errors, 'slug') ?>" name="slug" value="<?= e($v('slug')) ?>" placeholder="slug" data-slug-target spellcheck="false" aria-label="Slug">
       <?php endif; ?>
       <?php if ($permalink): ?>
         <a class="link" href="<?= e($permalink) ?>" target="_blank" rel="noopener">Xem bài <?= icon('arrow-up-right') ?></a>
@@ -67,7 +74,7 @@ $localDate = old('published_at', $localDate);
         <dt>Tự lưu</dt><dd data-autosave-status class="muted">—</dd>
       </dl>
       <?php if ($revisionCount > 0): ?>
-        <a class="link small revisions-link" href="/admin/<?= e(Posts::TYPES[$type]['route']) ?>/<?= (int) $post['id'] ?>/revisions"><?= icon('history') ?> Lịch sử phiên bản (<?= (int) $revisionCount ?>)</a>
+        <a class="link small revisions-link" href="<?= e($base) ?>/<?= (int) $post['id'] ?>/revisions"><?= icon('history') ?> Lịch sử phiên bản (<?= (int) $revisionCount ?>)</a>
       <?php endif; ?>
       <div class="field">
         <label for="published_at">Ngày đăng</label>
@@ -98,6 +105,7 @@ $localDate = old('published_at', $localDate);
       <?php endif; ?>
     </section>
 
+    <?php if ($isPost): ?>
     <section class="card">
       <div class="card-head">
         <h3>Chuyên mục</h3>
@@ -131,12 +139,13 @@ $localDate = old('published_at', $localDate);
         </div>
       <?php endif; ?>
     </section>
+    <?php endif; ?>
 
     <?php foreach ($customTax as $t): if ($t['context'] !== 'side') continue; ?>
       <?= View::capture('admin/posts/_tax_box', ['t' => $t]) ?>
     <?php endforeach; ?>
 
-    <?= View::capture('admin/posts/_ai', ['post' => $post]) ?>
+    <?= View::capture('admin/posts/_ai', ['post' => $post, 'type' => $type]) ?>
     <?= View::capture('admin/posts/_featured', ['post' => $post]) ?>
     <?php foreach ($boxes['side'] as $box): ?>
       <?= View::capture('admin/posts/_box', ['box' => $box, 'post' => $post, 'errors' => $errors]) ?>
@@ -145,7 +154,7 @@ $localDate = old('published_at', $localDate);
 </form>
 
 <?php if (!$isNew): ?>
-  <form id="trash-form" method="post" action="/admin/posts/<?= (int) $post['id'] ?>/trash" hidden data-confirm="Chuyển bài viết vào thùng rác?" data-confirm-text="Bạn có thể khôi phục lại trong mục Thùng rác." data-confirm-label="Chuyển vào thùng rác"><?= csrf_field() ?></form>
+  <form id="trash-form" method="post" action="<?= e($base) ?>/<?= (int) $post['id'] ?>/trash" hidden data-confirm="Chuyển <?= e($noun) ?> vào thùng rác?" data-confirm-text="Bạn có thể khôi phục lại trong mục Thùng rác." data-confirm-label="Chuyển vào thùng rác"><?= csrf_field() ?></form>
 <?php endif; ?>
 
 <script src="https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js" referrerpolicy="origin"></script>

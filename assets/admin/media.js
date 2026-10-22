@@ -268,8 +268,8 @@
             ${m.usage.length
               // hidden: bài chưa đăng của người khác (máy chủ không gửi tiêu đề); không sửa được thì không đặt link (bấm vào sẽ bị 403).
               ? '<ul class="mini-list">' + m.usage.map((u) => `<li>${u.hidden ? '<em>Bài chưa đăng của người khác</em>'
-                : u.editable === false ? esc(u.title || '(Không tiêu đề)')
-                : `<a href="/admin/${u.type === 'page' ? 'pages' : 'posts'}/${u.id}/edit">${esc(u.title || '(Không tiêu đề)')}</a>`}<span>${u.type === 'page' ? 'Trang' : 'Bài viết'}</span></li>`).join('') + '</ul>'
+                : u.editable === false || !u.edit_url ? esc(u.title || '(Không tiêu đề)')
+                : `<a href="${esc(u.edit_url)}">${esc(u.title || '(Không tiêu đề)')}</a>`}<span>${esc(u.kind)}</span></li>`).join('') + '</ul>'
               : '<p class="help">Chưa được bài viết hay trang nào dùng.</p>'}
           </div>
           <div class="md-actions">

@@ -171,10 +171,10 @@ final class SettingsController
         // Tick "Không dùng tiền tố" = chuyên mục nằm ở gốc (/the-loai/); bỏ tick mà ô trống thì dùng mặc định.
         $catBase = !empty($_POST['category_no_base']) ? '' : (trim(input_str('category_base'), '/') ?: 'chuyen-muc');
         $tagBase = trim(input_str('tag_base'), '/') ?: 'the';
-        if ($err = Permalink::validateBase($catBase)) {
+        if ($err = Permalink::validateBase($catBase, true)) {
             $errors['category_base'] = 'Tiền tố chuyên mục: ' . $err;
         }
-        if ($err = Permalink::validateBase($tagBase)) {
+        if ($err = Permalink::validateBase($tagBase, true)) {
             $errors['tag_base'] = 'Tiền tố thẻ: ' . $err;
         }
         // Tiền tố này là "đầu" của tiền tố kia (vd. "tin" và "tin/the") cũng hỏng: Resolver khớp tiền tố trước rồi trả 404.

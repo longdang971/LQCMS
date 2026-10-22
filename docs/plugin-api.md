@@ -216,7 +216,7 @@ lq_add_admin_page(string $slug, string $title, callable $callback, string $icon 
 
 Tạo trang `/admin/plugin/{slug}` nằm trong layout admin, kèm mục trong nhóm **Plugin** của menu trái. `$callback()` in phần thân trang. Người không có `$cap` bị chặn (403) và không thấy mục menu.
 
-Trang chỉ nhận GET. Để lưu form, đăng ký thêm route POST qua `admin_routes` — admin **tự kiểm tra token CSRF** cho mọi POST, form chỉ cần `csrf_field()`:
+Trang chỉ nhận GET (form đơn giản thì dùng [Trang cài đặt](#trang-cài-đặt) — không cần tự viết). Để lưu form tự vẽ, đăng ký thêm route POST qua `admin_routes` — admin **tự kiểm tra token CSRF** cho mọi POST, form chỉ cần `csrf_field()`:
 
 ```php
 lq_add_admin_page('ten-plugin', 'Tên plugin', function (): void {
@@ -487,6 +487,121 @@ Nguyên tắc:
 
 Ví dụ đầy đủ: plugin `hello-lq` (`hello_status` chỉ đọc, `hello_set_message` có thay đổi).
 
+---
+
+## Trang cài đặt
+
+Khai báo các ô, lõi tự vẽ form, kiểm tra (cùng quy tắc với field bài viết), báo lỗi từng ô và lưu. Trang nằm ở nhóm **Plugin** của menu trái, đường dẫn `/admin/plugin/{slug}`.
+
+```php
+lq_add_settings_page('ten-plugin', [
+    'title' => 'Đồng bộ ABC',
+    'description' => 'Kết nối với dịch vụ ABC.',
+    'icon' => 'refresh-cw',
+    'sections' => [
+        ['title' => 'Kết nối', 'description' => 'Lấy khoá ở trang đối tác.', 'fields' => [
+            'api_key' => ['type' => 'secret', 'label' => 'API key', 'required' => true],
+            'mode' => ['type' => 'select', 'label' => 'Chế độ', 'options' => ['live' => 'Thật', 'test' => 'Thử'], 'default' => 'live'],
+        ]],
+        ['title' => 'Tuỳ chọn', 'fields' => [
+            'enabled' => ['type' => 'checkbox', 'label' => 'Bật đồng bộ', 'default' => true],
+            'limit' => ['type' => 'number', 'label' => 'Số bài mỗi lần', 'min' => 1, 'max' => 100, 'default' => 10],
+        ]],
+    ],
+]);
+
+$key = lq_get_setting('ten-plugin', 'api_key');   // đã giải mã
+$limit = lq_get_setting('ten-plugin', 'limit');   // chưa lưu = 'default' của ô
+```
+
+`$args`: `title`, `menu_title`, `icon`, `cap` (mặc định `manage_options`), `description`, `keywords` (cho ⌘K / trợ lý AI), `sections` — hoặc `fields` nếu chỉ một nhóm. Ô dùng đúng khai báo của [field bài viết](theme-functions.md#field-tuỳ-biến) (`text`, `textarea`, `number`, `url`, `email`, `select`, `radio`, `checkbox`, `date`, `color`, `image`, `repeat`, `required`, `sanitize`, `validate`…) cộng kiểu **`secret`**: ô mật khẩu, lưu mã hoá bằng khoá của site, không bao giờ in giá trị đã lưu ra HTML, để trống khi lưu = giữ nguyên. Giá trị nằm trong option `settings_{slug}`; lưu xong chạy `do_action('settings_saved', 'plugin:{slug}', $values)`.
+
+Gọi `lq_add_settings_page` ở cấp ngoài cùng của tệp plugin (không bọc trong hook): lõi dựng route lưu form ngay sau khi nạp plugin. Hook `post_field_validate` chỉ chạy cho field bài viết, không chạy cho ô trang cài đặt — kiểm tra riêng bằng `validate` của từng ô.
+
+Cần form tự vẽ (bảng, nút thao tác…) thì dùng `lq_add_admin_page` ở trên.
+
+---
+
+## Thông báo trong admin
+
+Thông báo cố định đầu trang quản trị, hiện mỗi lần tới khi điều kiện hết đúng — vd. plugin chưa được cấu hình. Đăng ký mỗi request trong hook `admin_init` (đã đăng nhập, sau khi kiểm tra CSRF):
+
+```php
+add_action('admin_init', function (): void {
+    if (!lq_get_setting('ten-plugin', 'api_key')) {
+        lq_admin_notice('ten-plugin.key', 'Chưa nhập API key — đồng bộ đang tạm dừng.', [
+            'type' => 'warning',
+            'title' => 'Đồng bộ ABC:',
+            'link' => ['label' => 'Nhập ngay', 'url' => '/admin/plugin/ten-plugin'],
+        ]);
+    }
+});
+```
+
+`lq_admin_notice(string $id, string $message, array $opts = [])` — `$id`: chữ thường, số, `_ . : -`. `$opts`: `type` (`info` \| `success` \| `warning` \| `error`), `title`, `link` (`['label', 'url']`), `dismissible` (mặc định `true` — người dùng bấm ✕ thì ẩn với riêng họ; nội dung đổi thì hiện lại), `cap` (mặc định `manage_options`), `screens` (tiền tố URL admin, vd. `['/admin/plugins']`; bỏ trống = mọi trang). Nội dung là chữ thường (tự escape). `lq_remove_admin_notice($id)` để gỡ.
+
+Thông báo một lần sau khi lưu form thì dùng `flash()` như trước.
+
+---
+
+## Nhật ký
+
+```php
+lq_log('Đồng bộ xong', 'info', ['so_bai' => 12]);
+lq_log('API trả lỗi 500', 'error');
+```
+
+`lq_log(string $message, string $level = 'info', array $context = [])` — `$level`: `info` \| `warning` \| `error`; `$context` ghi kèm dạng JSON ngắn. Xem ở **Cài đặt › Nhật ký** (lọc theo mức độ, nguồn, tìm kiếm). Nguồn (plugin/theme nào) và vị trí gọi được ghi tự động; lỗi PHP do mã của plugin gây ra cũng được gắn đúng nguồn. Không ghi dữ liệu nhạy cảm (mật khẩu, khoá API).
+
+---
+
+## Shortcode
+
+```php
+lq_add_shortcode('nut', function (array $atts, ?string $content, string $tag): string {
+    $a = lq_shortcode_atts(['url' => '#', 'mau' => 'xanh'], $atts);
+    return '<a class="nut nut-' . e($a['mau']) . '" href="' . e($a['url']) . '">' . e($content ?? 'Xem thêm') . '</a>';
+});
+```
+
+Trong bài: `[nut url="/lien-he"]Liên hệ[/nut]`, `[nut url=/lien-he mau=do /]`, `[[nut]]` để in nguyên chữ `[nut]`. Tham số nhận nháy kép, nháy đơn, không nháy, và giá trị không tên (`[gallery 12 13]` → `$atts[0]`, `$atts[1]`). Callback **trả về** HTML (đừng echo) và tự escape dữ liệu người dùng; nội dung lồng shortcode khác thì gọi `lq_do_shortcode($content)`.
+
+Shortcode chạy trong `the_content` trước khi tự thêm `<p>`, nên HTML trả về không bị chèn `<p>`/`<br>`; shortcode đứng riêng một đoạn không bị bọc `<p>`. Tóm tắt (`get_the_excerpt`) tự bỏ shortcode. Callback ném lỗi: ghi vào Nhật ký, chỗ đó in rỗng, trang vẫn chạy.
+
+Hàm khác: `lq_remove_shortcode($tag)`, `lq_do_shortcode($text)`, `lq_strip_shortcodes($text)`, `lq_has_shortcode($content, $tag)`.
+
+---
+
+## Đường dẫn riêng
+
+```php
+lq_add_route('/sitemap.xml', fn () => ten_plugin_sitemap(), ['content_type' => 'application/xml; charset=utf-8']);
+
+lq_add_route('/su-kien-cu/{slug}', function (array $p) {
+    $post = ten_plugin_tim($p['slug']);
+    if (!$post) {
+        return false;                 // trang 404 của theme
+    }
+    get_header();                     // dùng khung trang của theme
+    echo '<h1>' . e($post['title']) . '</h1>';
+    get_footer();
+});
+
+lq_add_route('/api/don/{id:\d+}', fn (array $p) => ['id' => (int) $p['id']], ['methods' => ['GET']]); // mảng → JSON
+```
+
+`lq_add_route(string $pattern, callable $callback, array $opts = [])` — xét **trước** bài, trang, chuyên mục. Tham số `{ten}` (một đoạn URL) hoặc `{ten:regex}`; route phải bắt đầu bằng một đoạn cố định và không trùng đường dẫn hệ thống (`/admin`, `/ajax`, `/assets`…). Đoạn đầu được tính là đã có chủ: trang, chuyên mục mới không lấy được slug đó. Callback nhận mảng tham số và trả: chuỗi (in ra), mảng (JSON), `false` (404 của theme), hoặc `null`/`true` khi đã tự echo. `$opts`: `methods` (mặc định `['GET']`, tự nhận cả HEAD), `content_type`. Trong template: `is_route()`, `get_route_param('slug')`. Lỗi trong callback: ghi Nhật ký, trả 500. `lq_remove_route($pattern)` để gỡ.
+
+Cần endpoint gọi bằng JavaScript (có kiểm tra CSRF, giới hạn tần suất) thì dùng AJAX — xem [theme-functions.md › AJAX](theme-functions.md#ajax).
+
+---
+
+## Loại nội dung tuỳ biến
+
+`lq_register_post_type()` — xem [theme-functions.md › Loại nội dung tuỳ biến](theme-functions.md#loại-nội-dung-tuỳ-biến). Plugin thường đăng ký loại nội dung cùng taxonomy (`'post_type' => [...]`) và field (`lq_add_post_field(..., ['post_type' => [...]])`) của nó.
+
+---
+
 ## Hook
 
 Đăng ký bằng `add_action($hook, $callback, $priority = 10)` / `add_filter(...)`. Số `priority` nhỏ chạy trước. Filter **phải trả về** giá trị.
@@ -510,12 +625,14 @@ Ví dụ đầy đủ: plugin `hello-lq` (`hello_status` chỉ đọc, `hello_se
 | `admin_head` | action | Trong `<head>` của admin | — |
 | `admin_footer` | action | Cuối `<body>` của admin | — |
 | `admin_routes` | action | Trước khi khớp route admin | `Router $r` |
+| `admin_init` | action | Mọi trang admin, đã đăng nhập và qua kiểm tra CSRF — chỗ đăng ký `lq_admin_notice` | — |
+| `nav_menu_saved` | action | Lưu menu ở Giao diện › Menu | `int $menuId` |
 | `admin_menu` | filter | Menu trái | `array $menu` |
 | `admin_bar_items` | filter | Mục của thanh quản trị trên trang web | `array $items` |
 | `show_admin_bar` | filter | Có hiện thanh quản trị không | `bool` |
 | `settings_general_fields` | action | Cuối form Cài đặt chung | — |
 | `settings_media_fields` | action | Cuối form Cài đặt › Media | — |
-| `settings_saved` | action | Sau khi lưu cài đặt | `'general'` \| `'permalinks'` \| `'media'` |
+| `settings_saved` | action | Sau khi lưu cài đặt | `'general'` \| `'permalinks'` \| `'media'` \| `'plugin:{slug}'` (+ `array $values` với trang cài đặt plugin) |
 | `theme_switched` | action | Đổi theme | `string $new`, `string $old` |
 | `theme_file_saved` | action | Lưu tệp trong trình sửa mã theme | `string $theme`, `string $file` |
 

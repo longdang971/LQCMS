@@ -159,6 +159,8 @@ final class AdminBar
         $new = array_values(array_filter([
             can('edit_posts') ? ['id' => 'new-post', 'parent' => 'new', 'label' => 'Bài viết', 'url' => admin_url('/posts/new')] : null,
             can('edit_pages') ? ['id' => 'new-page', 'parent' => 'new', 'label' => 'Trang', 'url' => admin_url('/pages/new')] : null,
+            ...array_values(array_map(fn ($t) => can($t['cap']) ? ['id' => 'new-' . $t['key'], 'parent' => 'new', 'label' => lq_ucfirst($t['singular']), 'url' => admin_url('/' . $t['route'] . '/new')] : null,
+                array_filter(Posts::customTypes(), fn ($t) => $t['show_in_menu']))),
             can('upload_files') ? ['id' => 'new-media', 'parent' => 'new', 'label' => 'Media', 'url' => admin_url('/media')] : null,
         ]));
         if ($new) {
@@ -198,7 +200,7 @@ final class AdminBar
         }
         // Trang được chọn làm "trang bài viết" (is_home, đối tượng đang xem là trang đó) cũng sửa được như WordPress.
         if ((is_singular() || (is_home() && ($o['type'] ?? '') === 'page')) && Posts::canEdit($o)) {
-            $t = Posts::TYPES[$o['type']] ?? Posts::TYPES['post'];
+            $t = Posts::type((string) ($o['type'] ?? 'post')) ?? Posts::type('post');
             $status = match ($o['status'] ?? '') {
                 'draft' => 'Nháp',
                 'pending' => 'Chờ duyệt',

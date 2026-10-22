@@ -69,7 +69,7 @@ final class AgentTools
                     'query' => ['type' => 'string', 'description' => 'Từ khoá; bỏ trống = mới nhất.'],
                     'field' => ['type' => 'string', 'description' => 'Key field tuỳ biến để lọc (xem site_info).'],
                     'field_filter' => ['type' => 'string', 'description' => 'Với field: "missing" = chưa điền/trống/false (mặc định), "present" = đã điền, hoặc một chuỗi = giá trị field chứa chuỗi đó.'],
-                    'type' => ['type' => 'string', 'description' => 'post, page hoặc any (mặc định any).'],
+                    'type' => ['type' => 'string', 'description' => 'post, page, khoá loại nội dung tuỳ biến (xem site_info) hoặc any (mặc định any).'],
                     'limit' => ['type' => 'integer', 'description' => 'Tối đa 30, mặc định 10.'],
                 ], 'required' => []],
             ],
@@ -203,7 +203,7 @@ final class AgentTools
         $plugins = array_map(fn ($p) => $p['slug'] . ($p['active'] ? ' (bật)' : ' (tắt)'), Plugins::all());
         // Mỗi field ghi đủ để AI gửi đúng dạng giá trị: kiểu, nhiều giá trị (mảng), lựa chọn hợp lệ (gửi KHOÁ), bắt buộc, mẫu trang.
         $fields = [];
-        foreach (['post', 'page'] as $t) {
+        foreach (array_keys(Posts::types()) as $t) {
             foreach (PostFields::fields($t) as $k => $f) {
                 $fields[$k] ??= '  - ' . $k . ' "' . $f['label'] . '": ' . $f['type']
                     . ($f['repeat'] ? ", nhiều giá trị (gửi mảng, tối đa {$f['max_items']})" : '')
@@ -220,6 +220,7 @@ final class AgentTools
             'LQCMS ' . LQ_VERSION . ' · PHP ' . PHP_VERSION,
             'Theme đang dùng: ' . Themes::active() . ' (thư mục content/themes/' . Themes::active() . '/)',
             'Plugin: ' . (implode(', ', $plugins) ?: '(không có)'),
+            'Loại nội dung: ' . implode(', ', array_map(fn ($k, $t) => "$k ({$t['label']})", array_keys(Posts::types()), Posts::types())),
             'Taxonomy: ' . implode(', ', array_map(fn ($k, $t) => "$k ({$t['label']})", array_keys(Taxonomies::all()), Taxonomies::all())),
             "Field tuỳ biến (đọc/ghi qua get_content, propose_content.fields, lọc bằng search_content.field):\n" . (implode("\n", $fields) ?: '  (không có)'),
             'Mẫu trang: ' . (implode(', ', array_map(fn ($k, $t) => "$k ({$t['label']})", array_keys(\LQ\Content\Pages::templates()), \LQ\Content\Pages::templates())) ?: '(không có)'),
@@ -238,7 +239,7 @@ final class AgentTools
 
     private function search(string $query, string $type, int $limit, string $field = '', string $filter = 'missing'): string
     {
-        $types = $type === 'post' || $type === 'page' ? [$type] : ['post', 'page'];
+        $types = $type !== 'any' && Posts::type($type) ? [$type] : array_keys(Posts::types());
         if ($field !== '') {
             // Chỉ xét loại nội dung có field này — trang không có field "subtitle" của bài viết thì không tính là "thiếu".
             $types = array_values(array_filter($types, fn ($t) => isset(PostFields::fields($t)[$field])));
@@ -295,7 +296,7 @@ final class AgentTools
         $meta = PostMeta::all($id);
         return implode("\n", [
             "#{$p['id']} [{$p['type']}, {$p['status']}] {$p['title']}",
-            'Slug: ' . $p['slug'] . ' · Link: ' . Posts::permalink($p) . ' · Sửa: /admin/' . ($p['type'] === 'page' ? 'pages' : 'posts') . "/{$p['id']}/edit",
+            'Slug: ' . $p['slug'] . ' · Link: ' . Posts::permalink($p) . ' · Sửa: ' . (Posts::editUrl($p['type'], (int) $p['id']) ?: '(loại nội dung không còn đăng ký)'),
             'Cập nhật: ' . format_date($p['updated_at']) . ($p['published_at'] ? ' · Ngày đăng: ' . format_date($p['published_at']) : ''),
             'Ảnh đại diện: ' . ($p['featured_image'] ? $p['featured_image'] : '(chưa có)'),
             $terms ? 'Phân loại: ' . implode(' · ', $terms) : 'Phân loại: (không có)',

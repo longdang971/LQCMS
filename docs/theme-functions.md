@@ -47,6 +47,8 @@ Hệ thống thử từng tệp theo thứ tự, gặp tệp nào có trước t
 | Tìm kiếm | `search.php` |
 | Trang tĩnh | `front-page.php` (nếu là trang chủ) → tệp của mẫu trang → `page-{slug}.php` → `page-{id}.php` → `page.php` → `singular.php` |
 | Bài viết | `single-{slug}.php` → `single.php` → `singular.php` |
+| Loại nội dung tuỳ biến | `single-{loại}-{slug}.php` → `single-{loại}.php` → `single.php` → `singular.php` |
+| Danh sách loại tuỳ biến (`/{base}/`) | `archive-{loại}.php` → `archive.php` |
 | Trang bài mới nhất | `front-page.php` (nếu ở `/`) → `home.php` |
 | Chuyên mục | `category-{slug}.php` → `category-{id}.php` → `category.php` → `archive.php` |
 | Thẻ | `tag-{slug}.php` → `tag-{id}.php` → `tag.php` → `archive.php` |
@@ -296,6 +298,31 @@ Tham số `get_terms()`: `hide_empty` (mặc định `true`), `parent` (`null` =
 
 ---
 
+## Menu điều hướng
+
+Theme khai báo vị trí trong `functions.php`, người quản trị dựng menu ở **Giao diện › Menu** (kéo thả lồng cấp: trang, bài, chuyên mục, thẻ, loại nội dung tuỳ biến, link tuỳ chỉnh) rồi gán vào vị trí. Menu lưu theo tên nên đổi theme không mất.
+
+```php
+// functions.php
+lq_register_nav_menu('primary', 'Menu chính');
+lq_register_nav_menus(['primary' => 'Menu chính', 'footer' => 'Chân trang']); // nhiều vị trí
+
+// header.php
+<nav aria-label="Menu chính">
+  <?php lq_nav_menu(['location' => 'primary', 'class' => 'menu', 'depth' => 2, 'fallback' => fn () => '<a href="/">Trang chủ</a>']); ?>
+</nav>
+```
+
+| Hàm | Mô tả |
+|---|---|
+| `lq_nav_menu(array $args): string` | In `<ul class="menu">`: mỗi mục là `li.menu-item` (+ `is-current`, `is-current-ancestor`, `has-children`, class tuỳ chỉnh), menu con là `ul.sub-menu`, mục đang xem có `aria-current="page"`. `$args`: `location`, `class`, `id`, `depth` (0 = mọi cấp), `fallback` (callable khi vị trí chưa có menu), `echo` (false = chỉ trả chuỗi) |
+| `get_nav_menu_items(string $location): array` | Cây mục để tự vẽ: `label`, `url`, `new_tab`, `current`, `current_ancestor`, `type`, `classes`, `children` |
+| `has_nav_menu(string $location): bool` | Vị trí đã được gán menu có mục chưa |
+
+Mục trỏ tới bài chưa đăng / đã xoá, chuyên mục đã xoá tự ẩn (mục con của nó lên thay). Filter `nav_menu_items` (`array $items`, `string $location`) để sửa cây trước khi in.
+
+---
+
 ## Bài trước / sau & bài liên quan
 
 | Hàm | Mô tả |
@@ -345,7 +372,9 @@ Ví dụ với trọng số mặc định: bài chung 2 thẻ (6 điểm) đứn
 | `is_page($page = null)` | Trang tĩnh; nhận id/slug/mảng |
 | `is_singular(?string $type = null)` | Bài hoặc trang đơn; `'post'`/`'page'` để hỏi cụ thể |
 | `is_page_template(?string $template = null)` | Trang dùng mẫu trang (bất kỳ hoặc key cụ thể) |
-| `is_archive()` | Mọi trang lưu trữ (chuyên mục, thẻ, taxonomy, tác giả, ngày) |
+| `is_archive()` | Mọi trang lưu trữ (chuyên mục, thẻ, taxonomy, tác giả, ngày, danh sách loại tuỳ biến) |
+| `is_post_type_archive(?string $type = null)` | Trang danh sách của loại nội dung tuỳ biến: `is_post_type_archive('su_kien')` |
+| `is_route(?string $pattern = null)` | Đang ở một đường dẫn riêng (`lq_add_route`); `get_route_param('slug')` lấy tham số |
 | `is_category($category = null)` | Trang chuyên mục: `is_category('tin-tuc')` |
 | `is_tag($tag = null)` | Trang thẻ |
 | `is_tax(?string $taxonomy = null, $term = null)` | Taxonomy tuỳ biến: `is_tax('actor', 'ten-dien-vien')` |
@@ -557,9 +586,28 @@ lq_register_taxonomy('actor', [
 ]);
 ```
 
-`lq_register_taxonomy(string $key, array $args)` — `$key` 2–32 ký tự chữ thường, số, gạch dưới; không trùng `category`, `tag`, `post`, `page`. Tuỳ chọn: `label`, `singular`, `hierarchical` (có cấp cha/con, hiện dạng checklist), `base` (tiền tố URL frontend, `''` = không tiền tố), `route` (đường dẫn admin), `icon` (tên icon Lucide), `description`, `placeholder`, `cap` (mặc định `manage_terms`; quyền quản lý danh sách — người không có quyền này vẫn gắn được term đã có cho bài nhưng không tạo được term mới), `show_in_menu`, `list_column` (cột trong danh sách bài), `context` (`side` \| `main`).
+`lq_register_taxonomy(string $key, array $args)` — `$key` 2–32 ký tự chữ thường, số, gạch dưới; không trùng `category`, `tag`, `post`, `page`. Tuỳ chọn: `post_type` (loại nội dung dùng taxonomy này, mặc định `['post']`; vd. `['su_kien']` cho loại tuỳ biến), `label`, `singular`, `hierarchical` (có cấp cha/con, hiện dạng checklist), `base` (tiền tố URL frontend, `''` = không tiền tố), `route` (đường dẫn admin), `icon` (tên icon Lucide), `description`, `placeholder`, `cap` (mặc định `manage_terms`; quyền quản lý danh sách — người không có quyền này vẫn gắn được term đã có cho bài nhưng không tạo được term mới), `show_in_menu`, `list_column` (cột trong danh sách bài), `context` (`side` \| `main`).
 
 Template hiển thị: `taxonomy-actor.php`, `taxonomy-actor-{slug}.php` hoặc `taxonomy.php`.
+
+### Loại nội dung tuỳ biến
+
+Sản phẩm, sự kiện, dự án… dùng chung bảng bài viết, có mục riêng trên menu admin, form soạn như bài viết (tự lưu, lịch sử phiên bản, thùng rác — **không** có chuyên mục/thẻ), URL `/{base}/{slug}/` và trang danh sách `/{base}/`.
+
+```php
+lq_register_post_type('su_kien', [
+    'label' => 'Sự kiện',
+    'singular' => 'sự kiện',
+    'base' => 'su-kien',      // URL: /su-kien/hoi-cho-sach/ và /su-kien/
+    'icon' => 'calendar',
+]);
+lq_register_taxonomy('dia_diem', ['label' => 'Địa điểm', 'post_type' => ['su_kien']]);
+lq_add_post_field('ngay', ['label' => 'Ngày diễn ra', 'type' => 'date', 'post_type' => ['su_kien']]);
+```
+
+`lq_register_post_type(string $key, array $args)` — `$key` 2–20 ký tự chữ thường, số, gạch dưới (không trùng `post`, `page`). Tuỳ chọn: `label`, `singular`, `base` (tiền tố URL, mặc định = `route`), `route` (đường dẫn admin, mặc định `$key` đổi `_` thành `-`), `icon`, `cap` (mặc định `edit_posts`; đăng cần `publish_posts`, sửa bài người khác cần `edit_others_posts` như bài viết), `description` (hiện ở trang danh sách qua `the_archive_description()`), `public` (mặc định `true`; `false` = chỉ quản lý trong admin, không có trang ngoài website, không lộ qua tìm kiếm/AJAX), `has_archive` (mặc định `true`), `show_in_menu`.
+
+Template: `single-su_kien.php`, `archive-su_kien.php` (rồi `single.php` / `archive.php`). Truy vấn: `lq_query(['type' => 'su_kien'])`. Hàm: `get_post_type($post)`, `is_post_type_archive('su_kien')`, `get_post_type_archive_link('su_kien')`.
 
 ### Mẫu trang
 

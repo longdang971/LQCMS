@@ -103,3 +103,10 @@ lq_add_admin_bar_item('hello-lq-settings', [
 add_action('activate_hello-lq', function (): void {
     update_option('hello_lq_message', 'Xin chào từ plugin!', false);
 });
+
+// Shortcode: [xin-chao] hoặc [xin-chao ten="Lan"] trong nội dung bài — in lời chào đang lưu. Trả HTML (đừng echo), tự escape.
+lq_add_shortcode('xin-chao', function (array $atts): string {
+    $a = lq_shortcode_atts(['ten' => ''], $atts);
+    $msg = (string) option('hello_lq_message', 'Xin chào!');
+    return '<span class="hello-lq">' . e($a['ten'] !== '' ? "{$a['ten']} ơi, $msg" : $msg) . '</span>';
+});

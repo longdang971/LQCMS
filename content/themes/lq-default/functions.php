@@ -94,8 +94,16 @@ add_filter('ajax_post_data', function (array $data, array $post) {
 /* ---------- Hàm tiện ích của theme ---------- */
 
 /** Menu chính: Trang chủ + các trang cấp gốc (trừ trang đang làm trang chủ) theo thứ tự trong admin. */
+// Vị trí menu: admin dựng menu ở Giao diện › Menu rồi gán vào "Menu chính".
+lq_register_nav_menu('primary', 'Menu chính (đầu trang)');
+
 function lqd_nav_items(): array
 {
+    // Đã gán menu: dùng menu đó (cấp đầu; mục cha đang được xem qua mục con cũng sáng lên).
+    if ($menu = get_nav_menu_items('primary')) {
+        return array_map(fn ($it) => ['label' => $it['label'], 'url' => $it['url'], 'current' => $it['current'] || $it['current_ancestor'], 'new_tab' => $it['new_tab']], $menu);
+    }
+    // Chưa gán menu: Trang chủ + các trang cấp gốc.
     $items = [['label' => 'Trang chủ', 'url' => home_url('/'), 'current' => is_front_page()]];
     $front = (int) option('page_on_front', 0);
     foreach (get_pages(['parent' => 0, 'exclude' => $front ? [$front] : []]) as $p) {

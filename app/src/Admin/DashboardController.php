@@ -103,18 +103,20 @@ final class DashboardController
 
         if (can('edit_posts')) {
             $own = can('edit_others_posts') ? '' : ' AND author_id = ' . (int) current_user()['id'];
+            // Loại nội dung tuỳ biến người dùng sửa được (tên loại đã kiểm tra khi đăng ký: chữ thường, số, gạch dưới).
+            $cpt = implode('', array_map(fn ($k) => " OR (type = '$k'$own)", array_keys(array_filter(Posts::customTypes(), fn ($t) => can($t['cap'])))));
             $out['posts'] = array_map(fn ($p) => [
                 'id' => (int) $p['id'],
                 'title' => $p['title'] ?: '(Không tiêu đề)',
-                'status' => ($p['type'] === 'page' ? 'Trang · ' : '') . (Posts::STATUSES[$p['status']] ?? $p['status']),
+                'status' => ($p['type'] !== 'post' ? lq_ucfirst(Posts::type($p['type'])['singular'] ?? $p['type']) . ' · ' : '') . (Posts::STATUSES[$p['status']] ?? $p['status']),
                 'statusKey' => $p['status'],
                 'type' => $p['type'],
-                'url' => '/admin/' . Posts::TYPES[$p['type']]['route'] . '/' . $p['id'] . '/edit',
+                'url' => '/admin/' . (Posts::type($p['type'])['route'] ?? 'posts') . '/' . $p['id'] . '/edit',
             ], db()->all(
                 // Bài viết (tác giả chỉ thấy bài của mình) + trang tĩnh nếu có quyền sửa trang; bài trong thùng rác xếp cuối.
                 "SELECT id, title, status, type FROM {posts}
                  WHERE (title LIKE ? OR slug LIKE ?)
-                   AND ((type = 'post'$own)" . (can('edit_pages') ? " OR type = 'page'" : '') . ")
+                   AND ((type = 'post'$own)" . (can('edit_pages') ? " OR type = 'page'" : '') . $cpt . ")
                  ORDER BY status = 'trash', updated_at DESC LIMIT 8",
                 [$like, $slugLike]
             ));

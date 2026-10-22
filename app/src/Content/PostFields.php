@@ -26,6 +26,12 @@ final class PostFields
 
     public static function register(string $key, array $args): void
     {
+        self::$fields[$key] = self::normalize($key, $args);
+    }
+
+    /** Kiểm tra + chuẩn hoá khai báo một field (dùng chung cho field bài viết và trang cài đặt của plugin). */
+    public static function normalize(string $key, array $args): array
+    {
         if (!preg_match('/^[a-z][a-z0-9_]{1,63}$/', $key)) {
             throw new InvalidArgumentException("Tên field không hợp lệ: \"$key\" (chữ thường, số, gạch dưới).");
         }
@@ -40,7 +46,7 @@ final class PostFields
             throw new InvalidArgumentException("Field $key kiểu $type cần 'options' => ['giá trị' => 'Nhãn'].");
         }
         $box = (string) ($args['box'] ?? 'Thông tin thêm');
-        self::$fields[$key] = [
+        return [
             'key' => $key,
             'type' => $type,
             'label' => (string) ($args['label'] ?? $key),
@@ -159,58 +165,63 @@ final class PostFields
             if (!self::matchesTemplate($f, $template)) {
                 continue; // field của mẫu khác: bỏ qua, giữ nguyên dữ liệu cũ
             }
-            $raw = $input[$key] ?? null;
-            if ($f['repeat']) {
-                $items = array_values(array_filter(array_map(fn ($v) => is_string($v) ? trim($v) : $v, (array) $raw), fn ($v) => $v !== '' && $v !== null));
-                if (count($items) > $f['max_items']) {
-                    $errors["meta.$key"] = "{$f['label']}: tối đa {$f['max_items']} giá trị.";
-                    continue;
-                }
-                $clean = [];
-                foreach ($items as $i => $item) {
-                    [$v, $err] = self::clean($f, $item);
-                    if ($err) {
-                        $errors["meta.$key"] = "{$f['label']} (dòng " . ($i + 1) . "): $err";
-                        break;
-                    }
-                    $clean[] = $v;
-                }
-                $value = $clean;
-                $empty = !$clean;
-            } else {
-                [$value, $err] = self::clean($f, $raw);
-                if ($err) {
-                    $errors["meta.$key"] = "{$f['label']}: $err";
-                    continue;
-                }
-                $empty = $value === null || $value === '' || $value === false;
-            }
-            if (isset($errors["meta.$key"])) {
-                continue;
-            }
-            if ($f['required'] && $empty) {
-                $errors["meta.$key"] = "{$f['label']} là bắt buộc.";
-                continue;
-            }
-            if (is_callable($f['sanitize'])) {
-                $value = ($f['sanitize'])($value);
-            }
-            $custom = null;
-            if (is_callable($f['validate']) && !$empty) {
-                try {
-                    $custom = ($f['validate'])($value, $post);
-                } catch (Throwable $e) {
-                    $custom = $e->getMessage();
-                }
-            }
-            $custom = apply_filters('post_field_validate', $custom, $key, $value, $post);
-            if (is_string($custom) && $custom !== '') {
-                $errors["meta.$key"] = $custom;
+            [$value, $err] = self::check($f, $input[$key] ?? null, $post);
+            if ($err !== null) {
+                $errors["meta.$key"] = $err;
                 continue;
             }
             $values[$key] = $value;
         }
         return [$errors, $values];
+    }
+
+    /**
+     * Kiểm tra một field như form: kiểu, số dòng (repeat), bắt buộc, sanitize/validate của theme/plugin, filter
+     * post_field_validate (chỉ với field bài viết — $forPost false khi trang cài đặt plugin dùng lại hàm này). @return array{0: mixed, 1: ?string} [giá trị đã làm sạch, thông báo lỗi (có nhãn) hoặc null]
+     */
+    public static function check(array $f, mixed $raw, ?array $post = null, bool $forPost = true): array
+    {
+        $key = $f['key'];
+        if ($f['repeat']) {
+            $items = array_values(array_filter(array_map(fn ($v) => is_string($v) ? trim($v) : $v, (array) $raw), fn ($v) => $v !== '' && $v !== null));
+            if (count($items) > $f['max_items']) {
+                return [null, "{$f['label']}: tối đa {$f['max_items']} giá trị."];
+            }
+            $clean = [];
+            foreach ($items as $i => $item) {
+                [$v, $err] = self::clean($f, $item);
+                if ($err) {
+                    return [null, "{$f['label']} (dòng " . ($i + 1) . "): $err"];
+                }
+                $clean[] = $v;
+            }
+            $value = $clean;
+            $empty = !$clean;
+        } else {
+            [$value, $err] = self::clean($f, $raw);
+            if ($err) {
+                return [null, "{$f['label']}: $err"];
+            }
+            $empty = $value === null || $value === '' || $value === false;
+        }
+        if ($f['required'] && $empty) {
+            return [null, "{$f['label']} là bắt buộc."];
+        }
+        if (is_callable($f['sanitize'])) {
+            $value = ($f['sanitize'])($value);
+        }
+        $custom = null;
+        if (is_callable($f['validate']) && !$empty) {
+            try {
+                $custom = ($f['validate'])($value, $post);
+            } catch (Throwable $e) {
+                $custom = $e->getMessage();
+            }
+        }
+        if ($forPost) {
+            $custom = apply_filters('post_field_validate', $custom, $key, $value, $post);
+        }
+        return is_string($custom) && $custom !== '' ? [null, $custom] : [$value, null];
     }
 
     /**

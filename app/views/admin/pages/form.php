@@ -56,7 +56,7 @@ $currentParent = (int) $v('parent_id', 0);
         <dt>Tự lưu</dt><dd data-autosave-status class="muted">—</dd>
       </dl>
       <?php if ($revisionCount > 0): ?>
-        <a class="link small revisions-link" href="/admin/<?= e(Posts::TYPES[$type]['route']) ?>/<?= (int) $post['id'] ?>/revisions"><?= icon('history') ?> Lịch sử phiên bản (<?= (int) $revisionCount ?>)</a>
+        <a class="link small revisions-link" href="/admin/<?= e(Posts::type($type)['route']) ?>/<?= (int) $post['id'] ?>/revisions"><?= icon('history') ?> Lịch sử phiên bản (<?= (int) $revisionCount ?>)</a>
       <?php endif; ?>
       <div class="field">
         <label for="published_at">Ngày đăng</label>
@@ -125,7 +125,7 @@ $currentParent = (int) $v('parent_id', 0);
       </div>
     </section>
 
-    <?= View::capture('admin/posts/_ai', ['post' => $post]) ?>
+    <?= View::capture('admin/posts/_ai', ['post' => $post, 'type' => 'page']) ?>
     <?= View::capture('admin/posts/_featured', ['post' => $post]) ?>
 
     <?php foreach ($boxes['side'] as $box): ?>

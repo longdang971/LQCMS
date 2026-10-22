@@ -149,7 +149,9 @@ final class Terms
         $info = self::info($taxonomy);
         if ($info['base'] === '' && !$errors && ($parent === 0 || !$info['hierarchical'])) {
             $candidate = Slug::make($slugIn !== '' ? $slugIn : $name);
-            if (in_array($candidate, \LQ\Core\Permalink::takenRootSegments($taxonomy), true)) {
+            $old = $id ? self::find($id, $taxonomy) : null; // term có sẵn giữ nguyên slug + cấp: không chặn (như trang)
+            $unchanged = $old && $old['slug'] === $candidate && ((int) ($old['parent_id'] ?? 0) === 0 || !$info['hierarchical']);
+            if (!$unchanged && in_array($candidate, \LQ\Core\Permalink::takenRootSegments($taxonomy), true)) {
                 $errors['slug'] = "Slug \"$candidate\" trùng đường dẫn hệ thống hoặc tiền tố khác (vì {$info['singular']} đang không có tiền tố). Hãy chọn slug khác.";
             }
         }

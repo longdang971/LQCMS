@@ -110,13 +110,55 @@ final class Permalink
      */
     public static function takenRootSegments(?string $exceptTaxonomy = null): array
     {
-        $taken = self::RESERVED_ROOT;
+        // Đoạn đầu của route riêng (lq_add_route, vd. "su-kien") cũng đã có chủ.
+        // Tiền tố URL của loại nội dung tuỳ biến (lq_register_post_type, vd. "su-kien") cũng vậy.
+        $taken = [...self::RESERVED_ROOT, ...\LQ\Front\Routes::rootSegments(),
+            ...array_map(fn ($t) => explode('/', $t['base'])[0], \LQ\Content\Posts::customTypes())];
         foreach (\LQ\Content\Taxonomies::all() as $key => $t) {
             if ($key !== $exceptTaxonomy && $t['base'] !== '') {
                 $taken[] = explode('/', $t['base'])[0];
             }
         }
         return array_values(array_unique($taken));
+    }
+
+    /**
+     * Đoạn đầu URL mà route riêng / loại nội dung tuỳ biến (plugin, theme đăng ký sau) chiếm mất của nội dung đã có:
+     * trang cấp gốc, term taxonomy không tiền tố, bài viết khi cấu trúc /%postname%/. Route/CPT thắng nên nội dung kia thành
+     * không vào được — admin cần được báo để đổi slug. @return list<array{segment:string, owner:string, title:string}>
+     */
+    public static function collisions(): array
+    {
+        $owners = [];
+        foreach (\LQ\Front\Routes::rootSegments() as $seg) {
+            $owners[$seg] ??= 'đường dẫn riêng';
+        }
+        foreach (\LQ\Content\Posts::customTypes() as $t) {
+            $owners[explode('/', $t['base'])[0]] ??= 'loại nội dung "' . $t['label'] . '"';
+        }
+        if (!$owners) {
+            return [];
+        }
+        $postsAtRoot = trim((string) option('permalink_structure', '/%postname%/'), '/') === '%postname%';
+        $out = [];
+        foreach ($owners as $seg => $owner) {
+            $seg = (string) $seg;
+            $title = db()->value("SELECT title FROM {posts} WHERE type = 'page' AND parent_id IS NULL AND slug = ? LIMIT 1", [$seg]);
+            $what = $title !== null ? 'trang' : null;
+            if (!$what && $postsAtRoot && ($t = db()->value("SELECT title FROM {posts} WHERE type = 'post' AND slug = ? LIMIT 1", [$seg])) !== null) {
+                [$what, $title] = ['bài viết', $t];
+            }
+            foreach ($what ? [] : \LQ\Content\Taxonomies::all() as $key => $tax) {
+                if ($tax['base'] === '' && ($t = db()->value('SELECT name FROM {terms} WHERE taxonomy = ? AND parent_id IS NULL AND slug = ? LIMIT 1', [$key, $seg])) !== null) {
+                    [$what, $title] = [$tax['singular'], $t];
+                    break;
+                }
+            }
+            if ($what) {
+                $out[] = ['segment' => $seg, 'owner' => $owner, 'title' => lq_ucfirst($what) . ' "' . $title . '"'];
+            }
+        }
+        return $out;
     }
 
     /**
@@ -146,7 +188,8 @@ final class Permalink
     }
 
     /** Tiền tố cho trang chuyên mục / thẻ, vd. "chuyen-muc". Để trống = không tiền tố. */
-    public static function validateBase(string $base): ?string
+    /** $owned: cũng không được trùng đường dẫn riêng / tiền tố loại nội dung tuỳ biến (khi đổi tiền tố chuyên mục, thẻ trong Cài đặt). */
+    public static function validateBase(string $base, bool $owned = false): ?string
     {
         if ($base === '') {
             return null;
@@ -156,6 +199,11 @@ final class Permalink
         }
         if (in_array(explode('/', $base)[0], self::RESERVED_ROOT, true)) {
             return 'Tiền tố "' . $base . '" trùng với đường dẫn hệ thống.';
+        }
+        $first = explode('/', $base)[0];
+        if ($owned && (in_array($first, \LQ\Front\Routes::rootSegments(), true)
+            || in_array($first, array_map(fn ($t) => explode('/', $t['base'])[0], \LQ\Content\Posts::customTypes()), true))) {
+            return 'Tiền tố "' . $base . '" đã được theme/plugin dùng (đường dẫn riêng hoặc loại nội dung tuỳ biến).';
         }
         return null;
     }
