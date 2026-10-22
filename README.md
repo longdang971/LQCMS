@@ -25,6 +25,14 @@ Muốn cài lại từ đầu thì xoá tệp cấu hình (`<tên-thư-mục>-co
 - Lớp bảo vệ thứ hai khi máy chủ cấu hình thiếu: khoá (`storage/secret.php`) và nhật ký lỗi (`storage/logs/errors.php`) là tệp PHP mở đầu bằng `exit`, view admin tự thoát khi bị gọi thẳng.
 - Thư mục `content/uploads`, `content/themes`, `content/plugins` và `storage/` phải ghi được bởi user chạy PHP-FPM.
 
+## Cập nhật
+
+**Cài đặt › Cập nhật** kiểm tra bản mới trên [GitHub Releases](https://github.com/longdang971/LQCMS/releases) (hệ thống tự kiểm tra 12 giờ một lần, có bản mới thì menu Cài đặt hiện số và Bảng tin có thông báo). Bấm **Cập nhật** để tải gói `lqcms-<phiên bản>-update.zip`, kiểm tra (đúng phiên bản, PHP không lỗi cú pháp) rồi thay mã lõi: `app/`, `assets/`, `index.php`, `.htaccess`, `nginx.conf.example`, `README.md`, `content/.htaccess`. Theme, plugin, ảnh tải lên, `storage/`, cấu hình và database **không** bị đụng tới; database tự nâng cấp ở request kế tiếp nếu bản mới cần. Bản lõi cũ được giữ trong `storage/updates/` (2 bản gần nhất) — nút **Khôi phục bản trước** trả lại như cũ.
+
+Cần PHP có quyền ghi thư mục gốc, `app/`, `assets/`, `content/`, `storage/` (trang Cập nhật báo rõ nếu thiếu). Tuỳ chọn trong tệp cấu hình: `'disallow_updates' => true` (chỉ kiểm tra, không cho cập nhật từ admin), `'update_repo' => 'chu/repo'` (lấy bản phát hành từ repo khác).
+
+**Phát hành bản mới** (người phát triển): sửa `LQ_VERSION` trong `app/bootstrap.php`, commit, chạy `.github/scripts/build-release.sh <phiên bản>` → `dist/` có 2 tệp: `lqcms-<v>.zip` (cài mới, không có `docs/`) và `lqcms-<v>-update.zip` (cập nhật, không có `database/` và `docs/`). Tạo GitHub Release tag `v<phiên bản>` đính kèm cả hai (vd. `gh release create v0.2.1 dist/lqcms-0.2.1*.zip`). Bản nháp và pre-release không được coi là bản mới.
+
 ## Cấu trúc
 
 ```
