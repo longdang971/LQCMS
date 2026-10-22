@@ -121,13 +121,6 @@ final class Updater
         return null;
     }
 
-    /** Thời điểm (unix) tác vụ định kỳ sẽ kiểm tra lại, hoặc null nếu chưa chạy lần nào. */
-    public static function nextCheck(): ?int
-    {
-        $last = (int) (self::status()['checked_at'] ?? 0);
-        return $last ? $last + self::CHECK_TTL : null;
-    }
-
     /** Tác vụ định kỳ (Cron): kiểm tra 12 giờ một lần để menu báo có bản mới. */
     public static function cronCheck(): string
     {
