@@ -16,7 +16,8 @@ final class UpdatesController
             'title' => 'Cập nhật',
             'status' => Updater::check(), // dùng kết quả đã lưu nếu chưa quá 12 giờ
             'latest' => Updater::available(),
-            'problems' => Updater::problems(),
+            'current' => Updater::current(),
+            'readiness' => Updater::readiness(),
             'backup' => Updater::lastBackup(),
             'last' => option('update_last', null),
         ]);

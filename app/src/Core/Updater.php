@@ -54,7 +54,10 @@ final class Updater
         return is_array($l) && version_compare((string) $l['version'], LQ_VERSION, '>') ? $l : null;
     }
 
-    /** Hỏi GitHub bản phát hành mới nhất (dùng kết quả đã lưu nếu chưa quá 12 giờ, trừ khi $force). */
+    /**
+     * Hỏi GitHub các bản phát hành (dùng kết quả đã lưu nếu chưa quá 12 giờ, trừ khi $force). Lưu bản mới nhất ('latest')
+     * và vài bản gần nhất ('releases', phiên bản giảm dần) để trang Cập nhật hiện ghi chú của bản đang dùng + lịch sử.
+     */
     public static function check(bool $force = false): array
     {
         $s = self::status();
@@ -62,19 +65,24 @@ final class Updater
             return $s;
         }
         $api = rtrim((string) App::config('update_api', 'https://api.github.com'), '/');
-        [$code, $body, $err] = self::http("$api/repos/" . self::repo() . '/releases/latest');
+        [$code, $body, $err] = self::http("$api/repos/" . self::repo() . '/releases?per_page=20');
         $s['checked_at'] = time();
         $s['error'] = null;
-        if ($code === 404) {
-            $s['latest'] = null; // repo chưa có bản phát hành nào (bản nháp / pre-release không tính)
-        } elseif ($code !== 200 || !is_array($r = json_decode((string) $body, true))) {
+        if ($code !== 200 || !is_array($list = json_decode((string) $body, true))) {
             // Giữ kết quả cũ, chỉ ghi lỗi: GitHub giới hạn 60 lượt/giờ mỗi IP khi không đăng nhập.
-            $s['error'] = $err ?: ($code === 403 ? 'GitHub tạm chặn vì gọi quá nhiều lần, thử lại sau ít phút.' : "GitHub trả về mã $code.");
+            $s['error'] = $err ?: match ($code) {
+                403, 429 => 'GitHub tạm chặn vì gọi quá nhiều lần, thử lại sau ít phút.',
+                404 => 'Không tìm thấy repo ' . self::repo() . ' trên GitHub.',
+                default => "GitHub trả về mã $code.",
+            };
         } else {
-            $version = ltrim((string) ($r['tag_name'] ?? ''), 'vV');
-            if (!preg_match('/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/', $version)) {
-                $s['error'] = 'Bản phát hành mới nhất có tên phiên bản không hợp lệ: ' . mb_substr((string) ($r['tag_name'] ?? ''), 0, 40);
-            } else {
+            $releases = [];
+            foreach ($list as $r) {
+                // Bản nháp, pre-release và tag sai dạng không tính là bản phát hành.
+                $version = is_array($r) ? ltrim((string) ($r['tag_name'] ?? ''), 'vV') : '';
+                if (!empty($r['draft']) || !empty($r['prerelease']) || !preg_match('/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/', $version)) {
+                    continue;
+                }
                 $asset = null;
                 foreach ((array) ($r['assets'] ?? []) as $a) {
                     if (is_array($a) && ($a['name'] ?? '') === "lqcms-$version-update.zip") {
@@ -82,7 +90,7 @@ final class Updater
                         break;
                     }
                 }
-                $s['latest'] = [
+                $releases[] = [
                     'version' => $version,
                     'tag' => (string) $r['tag_name'],
                     'name' => mb_substr((string) ($r['name'] ?? '') ?: $version, 0, 200),
@@ -93,9 +101,31 @@ final class Updater
                     'asset_size' => $asset ? (int) $asset['size'] : 0,
                 ];
             }
+            // GitHub xếp theo ngày tạo, không theo số phiên bản (vá lỗi cho nhánh cũ có thể ra sau): tự xếp lại.
+            usort($releases, fn ($a, $b) => version_compare($b['version'], $a['version']));
+            $s['latest'] = $releases[0] ?? null;
+            $s['releases'] = array_slice($releases, 0, 8);
         }
         update_option('update_check', $s, false);
         return $s;
+    }
+
+    /** Thông tin bản phát hành của phiên bản đang chạy (ghi chú, ngày phát hành), hoặc null nếu không có trên GitHub. */
+    public static function current(): ?array
+    {
+        foreach ((array) (self::status()['releases'] ?? []) as $r) {
+            if (is_array($r) && ($r['version'] ?? '') === LQ_VERSION) {
+                return $r;
+            }
+        }
+        return null;
+    }
+
+    /** Thời điểm (unix) tác vụ định kỳ sẽ kiểm tra lại, hoặc null nếu chưa chạy lần nào. */
+    public static function nextCheck(): ?int
+    {
+        $last = (int) (self::status()['checked_at'] ?? 0);
+        return $last ? $last + self::CHECK_TTL : null;
     }
 
     /** Tác vụ định kỳ (Cron): kiểm tra 12 giờ một lần để menu báo có bản mới. */
@@ -108,19 +138,12 @@ final class Updater
         return ($l = self::available()) ? "Có bản {$l['version']}" : 'Đang dùng bản mới nhất';
     }
 
-    /** Lý do không cập nhật được trên máy chủ này (thiếu extension, không có quyền ghi), mảng rỗng = được. */
-    public static function problems(): array
+    /**
+     * Danh sách điều kiện để cập nhật từ trang quản trị (hiện dạng checklist).
+     * @return list<array{label: string, ok: bool, hint: string, problem: string}>
+     */
+    public static function readiness(): array
     {
-        $out = [];
-        if (!self::allowed()) {
-            $out[] = 'Cập nhật từ trang quản trị đang bị tắt (disallow_updates trong config.php).';
-        }
-        if (!class_exists(ZipArchive::class)) {
-            $out[] = 'Máy chủ chưa bật extension zip của PHP.';
-        }
-        if (!function_exists('curl_init') && !ini_get('allow_url_fopen')) {
-            $out[] = 'Máy chủ không tải được tệp từ Internet (thiếu curl và allow_url_fopen đang tắt).';
-        }
         // Đổi tên một mục cần quyền ghi thư mục chứa nó; đổi tên THƯ MỤC sang chỗ khác còn cần ghi được chính nó (cập nhật "..").
         $need = [LQ_ROOT, LQ_ROOT . '/content', LQ_ROOT . '/storage'];
         foreach (self::PATHS as $p) {
@@ -128,12 +151,30 @@ final class Updater
                 $need[] = LQ_ROOT . "/$p";
             }
         }
-        $denied = array_filter($need, fn ($d) => is_dir($d) && !is_writable($d));
-        if ($denied) {
-            $out[] = 'Máy chủ (PHP) không có quyền ghi: ' . implode(', ', array_map(fn ($d) => ($d === LQ_ROOT ? '/' : substr($d, strlen(LQ_ROOT))), $denied))
-                . '. Cấp quyền ghi cho người dùng chạy PHP, hoặc cập nhật thủ công bằng zip/git.';
-        }
-        return $out;
+        $denied = array_map(fn ($d) => $d === LQ_ROOT ? '/' : substr($d, strlen(LQ_ROOT)), array_filter($need, fn ($d) => is_dir($d) && !is_writable($d)));
+        $net = function_exists('curl_init') || (bool) ini_get('allow_url_fopen');
+        return [
+            ['label' => 'Cho phép cập nhật từ trang quản trị', 'ok' => self::allowed(),
+                'hint' => self::allowed() ? 'Tắt bằng disallow_updates trong tệp cấu hình' : 'Đang tắt bằng disallow_updates',
+                'problem' => 'Cập nhật từ trang quản trị đang bị tắt (disallow_updates trong tệp cấu hình).'],
+            ['label' => 'Tải được tệp từ GitHub', 'ok' => $net,
+                'hint' => function_exists('curl_init') ? 'Qua cURL' : ($net ? 'Qua allow_url_fopen' : 'Thiếu cURL và allow_url_fopen đang tắt'),
+                'problem' => 'Máy chủ không tải được tệp từ Internet (thiếu curl và allow_url_fopen đang tắt).'],
+            ['label' => 'Giải nén gói zip', 'ok' => class_exists(ZipArchive::class),
+                'hint' => class_exists(ZipArchive::class) ? 'Extension zip đã bật' : 'Chưa bật extension zip của PHP',
+                'problem' => 'Máy chủ chưa bật extension zip của PHP.'],
+            ['label' => 'Quyền ghi mã lõi', 'ok' => !$denied,
+                'hint' => $denied ? 'Thiếu quyền ghi: ' . implode(', ', $denied) : 'Thư mục gốc, app/, assets/, content/, storage/',
+                'problem' => 'Máy chủ (PHP) không có quyền ghi: ' . implode(', ', $denied) . '. Cấp quyền ghi cho người dùng chạy PHP, hoặc cập nhật thủ công bằng zip/git.'],
+            ['label' => 'PHP ' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION, 'ok' => version_compare(PHP_VERSION, '8.2', '>='),
+                'hint' => 'LQCMS cần PHP 8.2 trở lên', 'problem' => 'LQCMS cần PHP 8.2 trở lên.'],
+        ];
+    }
+
+    /** Lý do không cập nhật được trên máy chủ này, mảng rỗng = được. */
+    public static function problems(): array
+    {
+        return array_values(array_map(fn ($r) => $r['problem'], array_filter(self::readiness(), fn ($r) => !$r['ok'])));
     }
 
     /**
