@@ -44,6 +44,7 @@ final class Cron
         self::$tasks = [];
         self::add('publish_scheduled', 60, [self::class, 'publishScheduled'], 'Đăng bài / trang đã lên lịch khi tới giờ');
         self::add('cleanup', 86400, [self::class, 'cleanup'], 'Dọn dữ liệu cũ (đăng nhập sai, phiên ghi nhớ hết hạn, bản tự lưu cũ)');
+        self::add('update_check', 43200, [Updater::class, 'cronCheck'], 'Kiểm tra bản LQCMS mới trên GitHub');
         self::$tasks += $plugins;
     }
 

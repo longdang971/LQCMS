@@ -112,6 +112,10 @@
         form.append(h);
       }
       if (sub && sub.hasAttribute('formaction')) form.action = sub.formAction;
+      // data-confirm-busy="Đang …": việc chạy lâu (vd. cập nhật lõi) — khoá nút và đổi chữ để người dùng biết đang chạy.
+      if (form.dataset.confirmBusy) {
+        $$('button[type="submit"], button:not([type])', form).forEach((b) => { b.disabled = true; b.textContent = form.dataset.confirmBusy; });
+      }
       // Nút submit bằng form="" nằm ngoài form → gửi trực tiếp.
       HTMLFormElement.prototype.submit.call(form);
     });

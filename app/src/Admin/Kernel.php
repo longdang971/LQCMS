@@ -27,6 +27,7 @@ final class Kernel
         '/admin/settings' => 'tên website, khẩu hiệu, URL, email quản trị, cho phép đăng ký + vai trò mặc định, múi giờ, định dạng ngày giờ, trang chủ hiển thị, trang danh sách bài, số bài mỗi trang, số phiên bản giữ lại, chuyên mục mặc định, tác vụ định kỳ',
         '/admin/settings/permalinks' => 'cấu trúc đường dẫn bài viết (permalink, slug), tiền tố chuyên mục/thẻ, cấu hình máy chủ (nginx)',
         '/admin/settings/media' => 'dung lượng ảnh tối đa khi tải lên (MB), kích thước ảnh: giữ kích thước gốc hoặc chiều rộng/chiều cao tối đa (px), chất lượng nén JPG/WEBP/AVIF',
+        '/admin/updates' => 'kiểm tra cập nhật, phiên bản LQCMS mới, cập nhật lõi, ghi chú phát hành, khôi phục bản trước',
         '/admin/settings/ai' => 'chọn nhà cung cấp AI (Claude, ChatGPT, Gemini), API key, model, cài thư viện AI',
         '/admin/profile' => 'tên hiển thị, email, đổi mật khẩu, bật/tắt thanh quản trị ngoài website',
     ];
@@ -120,6 +121,10 @@ final class Kernel
         $r->post('/admin/settings/cron-run', [SettingsController::class, 'runCron']);
         $r->get('/admin/settings/permalinks', [SettingsController::class, 'permalinks']);
         $r->get('/admin/settings/media', [SettingsController::class, 'media']);
+        $r->get('/admin/updates', [UpdatesController::class, 'index']);
+        $r->post('/admin/updates/check', [UpdatesController::class, 'check']);
+        $r->post('/admin/updates/apply', [UpdatesController::class, 'apply']);
+        $r->post('/admin/updates/rollback', [UpdatesController::class, 'rollback']);
         $r->get('/admin/settings/ai', [AIController::class, 'settings']);
         $r->post('/admin/settings/ai', [AIController::class, 'save']);
         $r->post('/admin/ai/install', [AIController::class, 'install']);
@@ -243,11 +248,13 @@ final class Kernel
                 ...(\LQ\Core\ThemeFiles::editingAllowed() ? [['label' => 'Chỉnh sửa', 'url' => '/admin/themes/editor', 'cap' => 'edit_themes']] : []),
             ]],
             ['label' => 'Plugin', 'icon' => 'puzzle', 'url' => '/admin/plugins', 'cap' => 'manage_plugins', 'badge' => count(array_filter(\LQ\Core\Plugins::all(), fn ($p) => !$p['active'])) ?: null], // số plugin đã cài nhưng chưa bật
-            ['label' => 'Cài đặt', 'icon' => 'settings', 'url' => '/admin/settings', 'cap' => 'manage_options', 'children' => [
+            // Badge "1" khi có bản LQCMS mới (theo lần kiểm tra gần nhất — Cron kiểm tra 12 giờ một lần, không gọi mạng ở đây).
+            ['label' => 'Cài đặt', 'icon' => 'settings', 'url' => '/admin/settings', 'cap' => 'manage_options', 'badge' => \LQ\Core\Updater::available() ? 1 : null, 'children' => [
                 ['label' => 'Tổng quan', 'url' => '/admin/settings', 'cap' => 'manage_options', 'exact' => true],
                 ['label' => 'Đường dẫn tĩnh', 'url' => '/admin/settings/permalinks', 'cap' => 'manage_options'],
                 ['label' => 'Media', 'url' => '/admin/settings/media', 'cap' => 'manage_options'],
                 ['label' => 'MCP', 'url' => '/admin/settings/ai', 'cap' => 'manage_options'],
+                ['label' => 'Cập nhật', 'url' => '/admin/updates', 'cap' => 'manage_options'],
             ]],
             ['label' => 'Hồ sơ', 'icon' => 'user-round', 'url' => '/admin/profile', 'cap' => 'access_admin'],
         ];

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-define('LQ_VERSION', '0.1.0');
+define('LQ_VERSION', '0.2.0');
 define('LQ_ROOT', dirname(__DIR__));
 define('LQ_APP', LQ_ROOT . '/app');
 define('LQ_CONTENT', LQ_ROOT . '/content');

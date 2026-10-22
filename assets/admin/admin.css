@@ -1124,6 +1124,20 @@ body.picker-open { overflow: hidden; }
 .cron-status.is-ok > svg.lucide { color: var(--success); }
 .cron-status strong { display: block; font-weight: 500; }
 .cron-status small { color: var(--muted); font-size: 12.5px; }
+.update-status { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius); background: var(--surface-3); }
+.update-status > svg.lucide { width: 20px; height: 20px; color: var(--success); }
+.update-status.is-new > svg.lucide { color: var(--warning); }
+.update-status strong { display: block; font-weight: 500; }
+.update-status small { color: var(--muted); font-size: 12.5px; }
+.release-notes { padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; line-height: 1.6; max-height: 360px; overflow: auto; }
+.release-notes h4 { margin: 12px 0 4px; font-size: 14px; font-weight: 600; }
+.release-notes h4:first-child { margin-top: 0; }
+.release-notes p, .release-notes ul { margin: 0 0 8px; }
+.release-notes ul { padding-left: 20px; }
+.release-notes code { font-size: 12.5px; }
+.settings-fields form .help { margin-left: 10px; }
+.dash-update { margin-bottom: 16px; }
+.dash-update > svg.lucide { color: var(--warning); }
 
 /* ---------- Chống mất bài: thông báo, lịch sử phiên bản ---------- */
 .guard-notice { margin-bottom: 14px; align-items: center; }

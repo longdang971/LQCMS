@@ -3,3 +3,4 @@
 !/content/uploads/.gitkeep
 .DS_Store
 /storage/
+/dist/

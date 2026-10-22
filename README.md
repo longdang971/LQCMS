@@ -71,7 +71,7 @@ Vào **Cài đặt → Đường dẫn tĩnh** để chọn mẫu có sẵn ho�
 
 ## Viết theme
 
-Tra cứu đầy đủ: [docs/theme-functions.md](docs/theme-functions.md) (hàm template, hook, field, AJAX) và [docs/plugin-api.md](docs/plugin-api.md) (plugin, widget Bảng tin, trang admin, hook admin).
+Tra cứu đầy đủ: [docs/theme-functions.md](https://github.com/longdang971/LQCMS/blob/main/docs/theme-functions.md) (hàm template, hook, field, AJAX) và [docs/plugin-api.md](https://github.com/longdang971/LQCMS/blob/main/docs/plugin-api.md) (plugin, widget Bảng tin, trang admin, hook admin).
 
 ```
 content/themes/ten-theme/

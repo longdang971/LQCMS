@@ -125,9 +125,10 @@ final class Package
 
     /**
      * Giải nén từng tệp, đếm số byte THỰC ghi ra (kích thước khai trong zip có thể bị sửa cho nhỏ, extractTo() vẫn bung hết).
-     * Bỏ qua __MACOSX/ và .DS_Store. @return true|string true hoặc thông báo lỗi ('' = lỗi chung)
+     * Bỏ qua __MACOSX/ và .DS_Store. Không kiểm tra tên tệp — nơi gọi phải chặn zip slip trước (như stage(), Updater).
+     * @return true|string true hoặc thông báo lỗi ('' = lỗi chung)
      */
-    private static function extract(ZipArchive $zip, string $dir): true|string
+    public static function extract(ZipArchive $zip, string $dir): true|string
     {
         $budget = self::MAX_BYTES;
         for ($i = 0; $i < $zip->numFiles; $i++) {

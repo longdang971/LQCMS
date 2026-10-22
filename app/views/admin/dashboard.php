@@ -19,6 +19,10 @@ $greet = $hour < 11 ? 'Chào buổi sáng' : ($hour < 14 ? 'Chào buổi trưa' 
   </div>
 </div>
 
+<?php if (can('manage_options') && ($upd = \LQ\Core\Updater::available())): ?>
+  <div class="notice dash-update"><?= icon('circle-arrow-up') ?><div>Đã có <strong>LQCMS <?= e($upd['version']) ?></strong> (đang dùng <?= e(LQ_VERSION) ?>). <a class="link" href="/admin/updates">Xem và cập nhật</a></div></div>
+<?php endif; ?>
+
 <div class="dash-editbar" data-dash-editbar hidden>
   <span class="dash-editbar-text"><?= icon('move') ?> Kéo widget để sắp xếp, bấm <b>độ rộng</b> để đổi kích thước.</span>
   <form method="post" action="/admin/dashboard/reset" data-confirm="Khôi phục Bảng tin mặc định?" data-confirm-text="Bố cục bạn đã sắp xếp sẽ bị thay bằng bố cục ban đầu." data-confirm-label="Khôi phục">
