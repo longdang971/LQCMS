@@ -15,23 +15,23 @@ php -S 127.0.0.1:8088 index.php
 
 Mở http://127.0.0.1:8088. Lần đầu chạy sẽ hiện trình cài đặt: nhập thông tin database và tài khoản quản trị là xong. Trình cài đặt tự tạo tệp cấu hình **ở thư mục cha, ngoài web root**, đặt tên theo thư mục project: project ở `/var/www/example.com/` thì tệp là `/var/www/example.com-config.php`. Không ghi được thư mục cha (thiếu quyền, panel hosting giới hạn `open_basedir`) thì tạm ghi `config.php` trong thư mục gốc và admin hiện cảnh báo kèm lệnh chuyển tay. `config.php` cũ trong thư mục gốc tự được chuyển ra ngoài ở request đầu tiên.
 
-Muốn cài lại từ đầu thì xoá tệp cấu hình (`<tên-thư-mục>-config.php` ở thư mục cha) và các bảng `lq_*` trong database.
+Cài xong, trình cài đặt **tự xoá các tệp chỉ dùng lúc cài**: `database/` (cấu trúc bảng), `nginx.conf.example`, `app/views/install/` và `app/src/Core/Installer.php` — không xoá được (thiếu quyền ghi) thì admin báo để xoá tay. Bản checkout git (có thư mục `.git/`, như máy dev) được giữ nguyên. Muốn cài lại từ đầu: xoá tệp cấu hình (`<tên-thư-mục>-config.php` ở thư mục cha) và các bảng `lq_*`, rồi chép lại gói cài mới `lqcms-<phiên bản>.zip`.
 
 ## Triển khai lên VPS
 
 - Document root trỏ vào **thư mục gốc project** (nơi có `index.php`), giống WordPress — không có thư mục `public/` riêng.
-- nginx: xem `nginx.conf.example`. Chỉ cần cấu hình một lần, sau đó đổi permalink trong admin không phải sửa nginx. **Bắt buộc giữ khối chặn `app/`, `storage/`, `database/`** và luật chỉ cho chạy `index.php`: `storage/` chứa khoá mã hoá API key, nhật ký lỗi và gói plugin/theme đang chờ duyệt.
+- nginx: xem `nginx.conf.example` — **chép cấu hình trước khi chạy trình cài đặt**, vì cài xong tệp này bị xoá (bản gốc vẫn có trên GitHub). Chỉ cần cấu hình một lần, sau đó đổi permalink trong admin không phải sửa nginx. **Bắt buộc giữ khối chặn `app/`, `storage/`, `database/`** và luật chỉ cho chạy `index.php`: `storage/` chứa khoá mã hoá API key, nhật ký lỗi và gói plugin/theme đang chờ duyệt.
 - Apache: `.htaccess` ở gốc (rewrite + chặn) và `app/.htaccess`, `storage/.htaccess`, `database/.htaccess` đã có sẵn.
 - Lớp bảo vệ thứ hai khi máy chủ cấu hình thiếu: khoá (`storage/secret.php`) và nhật ký lỗi (`storage/logs/errors.php`) là tệp PHP mở đầu bằng `exit`, view admin tự thoát khi bị gọi thẳng.
 - Thư mục `content/uploads`, `content/themes`, `content/plugins` và `storage/` phải ghi được bởi user chạy PHP-FPM.
 
 ## Cập nhật
 
-**Cài đặt › Cập nhật** kiểm tra bản mới trên [GitHub Releases](https://github.com/longdang971/LQCMS/releases) (hệ thống tự kiểm tra 12 giờ một lần, có bản mới thì menu Cài đặt hiện số và Bảng tin có thông báo). Bấm **Cập nhật** để tải gói `lqcms-<phiên bản>-update.zip`, kiểm tra (đúng phiên bản, PHP không lỗi cú pháp) rồi thay mã lõi: `app/`, `assets/`, `index.php`, `.htaccess`, `nginx.conf.example`, `README.md`, `content/.htaccess`. Theme, plugin, ảnh tải lên, `storage/`, cấu hình và database **không** bị đụng tới; database tự nâng cấp ở request kế tiếp nếu bản mới cần. Bản lõi cũ được giữ trong `storage/updates/` (2 bản gần nhất) — nút **Khôi phục bản trước** trả lại như cũ.
+**Cài đặt › Cập nhật** kiểm tra bản mới trên [GitHub Releases](https://github.com/longdang971/LQCMS/releases) (hệ thống tự kiểm tra 12 giờ một lần, có bản mới thì menu Cài đặt hiện số và Bảng tin có thông báo). Bấm **Cập nhật** để tải gói `lqcms-<phiên bản>-update.zip`, kiểm tra (đúng phiên bản, PHP không lỗi cú pháp) rồi thay mã lõi: `app/`, `assets/`, `index.php`, `.htaccess`, `README.md`, `content/.htaccess`. Theme, plugin, ảnh tải lên, `storage/`, cấu hình và database **không** bị đụng tới; database tự nâng cấp ở request kế tiếp nếu bản mới cần. Bản lõi cũ được giữ trong `storage/updates/` (2 bản gần nhất) — nút **Khôi phục bản trước** trả lại như cũ.
 
 Cần PHP có quyền ghi thư mục gốc, `app/`, `assets/`, `content/`, `storage/` (trang Cập nhật báo rõ nếu thiếu). Tuỳ chọn trong tệp cấu hình: `'disallow_updates' => true` (chỉ kiểm tra, không cho cập nhật từ admin), `'update_repo' => 'chu/repo'` (lấy bản phát hành từ repo khác).
 
-**Phát hành bản mới** (người phát triển): sửa `LQ_VERSION` trong `app/bootstrap.php`, commit, chạy `.github/scripts/build-release.sh <phiên bản>` → `dist/` có 2 tệp: `lqcms-<v>.zip` (cài mới, không có `docs/`) và `lqcms-<v>-update.zip` (cập nhật, không có `database/` và `docs/`). Tạo GitHub Release tag `v<phiên bản>` đính kèm cả hai (vd. `gh release create v0.2.1 dist/lqcms-0.2.1*.zip`). Bản nháp và pre-release không được coi là bản mới.
+**Phát hành bản mới** (người phát triển): sửa `LQ_VERSION` trong `app/bootstrap.php`, commit, chạy `.github/scripts/build-release.sh <phiên bản>` → `dist/` có 2 tệp: `lqcms-<v>.zip` (cài mới, không có `docs/`) và `lqcms-<v>-update.zip` (cập nhật, không có `database/`, `docs/` và các tệp chỉ dùng lúc cài). Tạo GitHub Release tag `v<phiên bản>` đính kèm cả hai (vd. `gh release create v0.2.1 dist/lqcms-0.2.1*.zip`). Bản nháp và pre-release không được coi là bản mới.
 
 ## Cấu trúc
 
@@ -39,11 +39,11 @@ Cần PHP có quyền ghi thư mục gốc, `app/`, `assets/`, `content/`, `stor
 app/
   bootstrap.php       nạp autoload + helpers
   helpers.php         hàm tiện ích: e(), option(), add_action(), apply_filters()...
-  src/Core/           Database, Auth, Router, Permalink, Hooks, Themes, Plugins, Uploads, Installer...
+  src/Core/           Database, Auth, Router, Permalink, Hooks, Themes, Plugins, Uploads, Updater, Installer (xoá sau khi cài)...
   src/Content/        Posts, Terms (chuyên mục, thẻ)
   src/Admin/          controller trang quản trị
   views/              template PHP của admin + trình cài đặt
-database/schema.sql   cấu trúc bảng
+database/schema.sql   cấu trúc bảng — chỉ có trong gói cài mới, xoá sau khi cài
 storage/              khoá mã hoá, nhật ký lỗi, thư viện AI, bản sao lưu theme, gói chờ cài (chặn web)
 index.php             front controller, mọi request đều qua đây
 assets/admin/         admin.css, admin.js

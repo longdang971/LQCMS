@@ -17,7 +17,19 @@ final class App
         $path = request_path();
 
         if (!is_file(LQ_CONFIG)) {
-            (new Installer())->handle($path);
+            if (class_exists(Installer::class)) {
+                (new Installer())->handle($path);
+                return;
+            }
+            // Trình cài đặt đã được gỡ sau khi cài (InstallFiles) mà tệp cấu hình lại mất.
+            http_response_code(503);
+            header('Content-Type: text/html; charset=utf-8');
+            echo '<!doctype html><meta charset="utf-8"><title>Thiếu tệp cấu hình</title>'
+                . '<div style="font:16px/1.6 system-ui,sans-serif;max-width:560px;margin:15vh auto;padding:0 16px">'
+                . '<h1 style="font-size:20px">Không tìm thấy tệp cấu hình</h1>'
+                . '<p>Website cần tệp <code>' . htmlspecialchars(basename(LQ_CONFIG_OUTSIDE)) . '</code> ở thư mục cha (ngoài thư mục web). '
+                . 'Hãy khôi phục tệp này từ bản sao lưu. Muốn cài lại từ đầu, tải gói cài mới (lqcms-&lt;phiên bản&gt;.zip) từ '
+                . '<a href="https://github.com/' . Updater::REPO . '/releases">GitHub Releases</a>.</p></div>';
             return;
         }
 
@@ -26,6 +38,11 @@ final class App
         self::$db = new Database($config['db']);
         Options::load();
         Migrations::run();
+        // Cài xong mà phải tạo tệp cấu hình bằng tay: lần truy cập đầu tiên sau đó dọn nốt tệp cài đặt.
+        if (option('install_cleanup_pending')) {
+            InstallFiles::remove();
+            Options::delete('install_cleanup_pending');
+        }
 
         // Field có sẵn của lõi: mô tả SEO cho thẻ meta description (lq_meta_description() dùng nếu có).
         lq_add_post_field('seo_description', [

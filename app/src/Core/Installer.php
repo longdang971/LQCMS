@@ -23,8 +23,17 @@ final class Installer
             } else {
                 [$errors, $configText] = $this->install(array_filter($_POST, 'is_string')); // form chỉ có ô chữ
                 if (!$errors && $configText === null) {
+                    // Cài xong: gỡ trình cài đặt, cấu trúc bảng, cấu hình nginx mẫu khỏi thư mục web.
+                    $left = InstallFiles::remove();
                     flash('success', 'Cài đặt LQCMS thành công. Chào mừng bạn!');
+                    if ($left) {
+                        flash('warning', 'Không xoá được tệp cài đặt (thiếu quyền ghi): ' . implode(', ', $left) . ' — hãy xoá tay.');
+                    }
                     redirect('/admin');
+                }
+                if (!$errors) {
+                    // Không ghi được tệp cấu hình, người dùng tự tạo: dọn tệp cài đặt ở lần truy cập đầu tiên sau đó (App::run).
+                    update_option('install_cleanup_pending', true);
                 }
             }
             // keepOld chỉ bỏ khoá chứa "password": đừng để mật khẩu DB nằm trong session. Form chỉ có ô chữ nên bỏ giá trị mảng.

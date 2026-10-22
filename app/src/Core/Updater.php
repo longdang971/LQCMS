@@ -18,7 +18,7 @@ final class Updater
 {
     public const REPO = 'longdang971/LQCMS';
     /** Đường dẫn lõi được thay — zip cập nhật chứa đúng những thứ này (thiếu cái nào thì giữ bản đang có). */
-    public const PATHS = ['app', 'assets', 'index.php', '.htaccess', 'nginx.conf.example', 'README.md', 'content/.htaccess'];
+    public const PATHS = ['app', 'assets', 'index.php', '.htaccess', 'README.md', 'content/.htaccess'];
     private const REQUIRED = ['app/bootstrap.php', 'app/src/Core/App.php', 'index.php'];
     private const CHECK_TTL = 43200; // 12 giờ
     private const MAX_ZIP = 50 * 1024 * 1024;
@@ -497,6 +497,7 @@ final class Updater
     /** Mã PHP vừa thay: xoá bộ nhớ đệm opcode (và cache stat) để request sau chạy đúng mã mới. */
     private static function afterSwap(): void
     {
+        InstallFiles::remove(); // bản lõi cũ (khôi phục) hay site cài từ bản cũ có thể còn trình cài đặt, database/…
         if (function_exists('opcache_reset')) {
             @opcache_reset();
         }

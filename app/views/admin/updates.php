@@ -140,7 +140,7 @@ $notesOf = $latest ?? $current;
       <div class="tile-title"><div><h3>Phạm vi cập nhật</h3><p>Những gì được thay và được giữ</p></div></div>
       <p class="upd-scope-label"><?= icon('refresh-cw') ?> Thay bằng bản mới</p>
       <div class="upd-chips">
-        <?php foreach (['app/', 'assets/', 'index.php', '.htaccess', 'nginx.conf.example'] as $c): ?><code><?= e($c) ?></code><?php endforeach; ?>
+        <?php foreach (['app/', 'assets/', 'index.php', '.htaccess'] as $c): ?><code><?= e($c) ?></code><?php endforeach; ?>
       </div>
       <p class="upd-scope-label is-keep"><?= icon('shield-check') ?> Giữ nguyên</p>
       <div class="upd-chips is-keep">
