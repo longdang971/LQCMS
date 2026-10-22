@@ -1,10 +1,13 @@
+<?php defined('LQ_ROOT') || exit; ?>
 <div class="page-head">
   <div>
     <h1>Thư viện media</h1>
-    <p><span data-media-total><?= number_format($total, 0, ',', '.') ?></span> ảnh · <?= e($totalSize) ?></p>
   </div>
   <div class="page-actions">
-    <button class="btn btn-secondary" type="button" data-media-select-mode><?= icon('square-check') ?> Chọn nhiều</button>
+    <?php if (can('manage_options')): ?>
+      <button class="btn btn-secondary" type="button" data-media-cleanup title="Tìm và xoá ảnh không bài viết, trang hay cài đặt nào dùng đến"><?= icon('eraser') ?> Dọn dẹp</button>
+    <?php endif; ?>
+    <button class="btn btn-secondary" type="button" data-media-select-mode title="Hoặc giữ <?= is_mac_client() ? '⌘' : 'Ctrl' ?> và bấm vào ảnh"><?= icon('square-check') ?> Chọn nhiều</button>
     <label class="btn btn-accent">
       <?= icon('upload') ?> Tải ảnh lên
       <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" multiple hidden data-media-upload-input>
@@ -28,6 +31,7 @@
 
   <div class="bulk-bar media-bulk" data-media-bulk hidden>
     <span><strong data-media-bulk-count>0</strong> ảnh được chọn</span>
+    <span class="bulk-hint" data-media-bulk-hint></span>
     <button class="btn btn-sm btn-ghost" type="button" data-media-bulk-cancel>Huỷ</button>
     <button class="btn btn-sm btn-danger" type="button" data-media-bulk-delete><?= icon('trash-2') ?> Xoá</button>
   </div>

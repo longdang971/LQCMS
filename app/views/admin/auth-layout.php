@@ -1,3 +1,4 @@
+<?php defined('LQ_ROOT') || exit; ?>
 <!doctype html>
 <html lang="vi">
 <head>

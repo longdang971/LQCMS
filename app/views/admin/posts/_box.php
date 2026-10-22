@@ -1,9 +1,11 @@
 <?php
+defined('LQ_ROOT') || exit;
 /** Khung chứa các field tuỳ biến hoặc meta box tự vẽ. Biến: $box, $post, $errors */
 use LQ\Content\PostFields;
 use LQ\Core\View;
 
-$oldMeta = old('meta', null);
+// Form vừa gửi lại (lỗi/xung đột) mà không có meta nào (vd. chỉ có checkbox và đã bỏ chọn): coi như mảng rỗng chứ không phải "chưa gửi".
+$oldMeta = old('meta', !empty($_SESSION['_old_current']) ? [] : null);
 ?>
 <section class="card meta-box" id="<?= e($box['id']) ?>"<?= !empty($box['template']) ? ' data-for-template="' . e($box['template']) . '"' : '' ?>>
   <div class="card-head">

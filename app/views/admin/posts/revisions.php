@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 /** Lịch sử phiên bản: danh sách bên trái, so sánh bản được chọn với bản hiện tại bên phải. */
 $editUrl = $base . '/' . (int) $post['id'] . '/edit';
 $changes = count(array_filter($diff, fn ($d) => $d['op'] !== '='));
@@ -6,7 +7,6 @@ $changes = count(array_filter($diff, fn ($d) => $d['op'] !== '='));
 <div class="page-head">
   <div>
     <h1>Lịch sử phiên bản</h1>
-    <p><a class="link" href="<?= e($editUrl) ?>"><?= e($post['title'] ?: '(Không tiêu đề)') ?></a> · giữ tối đa <?= (int) option('revisions_keep', 25) ?> phiên bản gần nhất</p>
   </div>
   <div class="page-actions">
     <a class="btn btn-secondary" href="<?= e($editUrl) ?>"><?= icon('arrow-left') ?> Quay lại soạn thảo</a>

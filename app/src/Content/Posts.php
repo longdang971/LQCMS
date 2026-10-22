@@ -49,6 +49,22 @@ final class Posts
      * Danh sách có lọc + phân trang.
      * @return array{items: array, total: int, counts: array<string,int>}
      */
+    /** Các tháng có bài (theo múi giờ site), mới nhất trước: ['2026-10' => 'Tháng 10/2026', …] — cho bộ lọc tháng. */
+    public static function months(string $type = 'post'): array
+    {
+        $offset = site_timezone()->getOffset(new \DateTimeImmutable('now', new \DateTimeZone('UTC')));
+        $rows = db()->column(
+            "SELECT DISTINCT DATE_FORMAT(DATE_ADD(COALESCE(published_at, created_at), INTERVAL ? SECOND), '%Y-%m') ym
+             FROM {posts} WHERE type = ? AND status <> 'trash' ORDER BY ym DESC",
+            [$offset, $type]
+        );
+        $out = [];
+        foreach ($rows as $ym) {
+            $out[$ym] = 'Tháng ' . (int) substr($ym, 5, 2) . '/' . substr($ym, 0, 4);
+        }
+        return $out;
+    }
+
     public static function paginate(array $f, int $page, int $perPage, string $type = 'post'): array
     {
         $where = ['p.type = ?'];
@@ -89,6 +105,13 @@ final class Posts
             $where[] = 'p.author_id = ?';
             $params[] = (int) $f['author'];
         }
+        // Tháng phải 01–12: "2026-13" làm dateRange() ném DateMalformedStringException.
+        if (preg_match('/^(\d{4})-(0[1-9]|1[0-2])$/', (string) ($f['month'] ?? ''), $m)) {
+            // Tháng tính theo múi giờ của site (cùng cách hiển thị ngày trong danh sách).
+            [$from, $to] = \LQ\Front\Query::dateRange((int) $m[1], (int) $m[2]);
+            $where[] = 'COALESCE(p.published_at, p.created_at) >= ? AND COALESCE(p.published_at, p.created_at) < ?';
+            array_push($params, $from, $to);
+        }
 
         $w = implode(' AND ', $where);
         $total = (int) db()->value("SELECT COUNT(*) FROM {posts} p WHERE $w", $params);
@@ -124,7 +147,7 @@ final class Posts
         }
         $ids = array_column($posts, 'id');
         $rows = db()->all(
-            'SELECT pt.post_id, t.id, t.name, t.slug, t.taxonomy FROM {post_terms} pt JOIN {terms} t ON t.id = pt.term_id
+            'SELECT pt.post_id, t.id, t.name, t.slug, t.taxonomy, t.parent_id, t.description FROM {post_terms} pt JOIN {terms} t ON t.id = pt.term_id
              WHERE pt.post_id IN (' . Database::placeholders($ids) . ') ORDER BY t.name',
             $ids
         );
@@ -139,12 +162,22 @@ final class Posts
         }
     }
 
-    public static function uniqueSlug(string $slug, int $exceptId = 0, string $type = 'post'): string
+    /** $root: trang cấp gốc (bài viết luôn true) — khi đó slug còn phải tránh đoạn đầu URL đã có chủ (Permalink::rootSlugTaken). */
+    public static function uniqueSlug(string $slug, int $exceptId = 0, string $type = 'post', bool $root = true): string
     {
-        return Slug::unique($slug, fn ($s) => (bool) db()->value(
+        // Giữ nguyên slug đang dùng thì không kiểm chéo: trùng từ trước (vd. vừa đổi cấu trúc permalink) mà tự đổi slug khi lưu lại
+        // sẽ làm hỏng URL đang chạy.
+        // Trang con vừa chuyển lên cấp gốc thì URL đằng nào cũng đổi (/cha/slug/ → /slug/): không miễn, phải tránh đoạn đầu URL đã có chủ.
+        $current = $exceptId ? (string) db()->value("SELECT slug FROM {posts} WHERE id = ? AND (type <> 'page' OR parent_id IS NULL)", [$exceptId]) : '';
+        $exists = fn ($s) => (bool) db()->value(
             'SELECT 1 FROM {posts} WHERE type = ? AND slug = ? AND id <> ?',
             [$type, $s, $exceptId]
-        ));
+        ) || ($root && $s !== $current && \LQ\Core\Permalink::rootSlugTaken($s, $type === 'page' ? 'page' : 'post'));
+        // Slug sát giới hạn cột (191) mà bị trùng: cắt bớt để chừa chỗ cho hậu tố -2, -3… (không thì lỗi "Data too long").
+        if (strlen($slug) > 180 && $exists($slug)) {
+            $slug = rtrim(substr($slug, 0, 180), '-');
+        }
+        return Slug::unique($slug, $exists);
     }
 
     /**
@@ -203,7 +236,9 @@ final class Posts
                 $errors['parent_id'] = 'Trang cha không hợp lệ (không được chọn chính nó hoặc trang con của nó).';
             }
             $template = trim((string) ($in['template'] ?? ''));
-            if ($template !== '' && !Pages::template($template)) {
+            // Giữ nguyên mẫu đang gắn thì không bắt lỗi dù theme hiện tại không khai báo (vd. vừa đổi theme, tắt plugin):
+            // sửa trang lúc đó không được âm thầm xoá mẫu, bật lại theme thì trang trở về như cũ.
+            if ($template !== '' && !Pages::template($template) && $template !== (string) ($existing['template'] ?? '')) {
                 $errors['template'] = 'Mẫu trang không tồn tại trong theme đang dùng.';
             }
             // Trang cấp gốc nằm ở /slug/: không được trùng đường dẫn hệ thống / tiền tố chuyên mục, thẻ…
@@ -235,7 +270,7 @@ final class Posts
 
         $data = [
             'title' => $title,
-            'slug' => self::uniqueSlug($slug ?: 'khong-tieu-de', $id, $type),
+            'slug' => self::uniqueSlug($slug ?: 'khong-tieu-de', $id, $type, !$isPage || empty($pageData['parent_id'])),
             'content' => $content,
             'status' => $status,
             'published_at' => $publishedAt,
@@ -265,7 +300,8 @@ final class Posts
                     [$key, ...$ids]
                 ) : []];
             } else {
-                $termInput[$key] = ['names' => self::splitNames($raw)];
+                // Như WordPress: chỉ người có quyền quản lý taxonomy này mới tạo được term mới; người khác chỉ gắn term đã có.
+                $termInput[$key] = ['names' => self::splitNames($raw), 'create' => can($tax['cap'])];
             }
         }
 
@@ -285,7 +321,7 @@ final class Posts
             }
             $termIds = [];
             foreach ($termInput as $tax => $in) {
-                array_push($termIds, ...($in['ids'] ?? Terms::ensureTerms($tax, $in['names'])));
+                array_push($termIds, ...($in['ids'] ?? Terms::ensureTerms($tax, $in['names'], $in['create'] ?? true)));
             }
             $taxes = array_keys($termInput);
             if ($taxes) {
@@ -330,25 +366,39 @@ final class Posts
         $parent = db()->value('SELECT parent_id FROM {posts} WHERE id = ?', [$id]);
         db()->query("UPDATE {posts} SET parent_id = ? WHERE parent_id = ? AND type = 'page'", [$parent, $id]);
         db()->delete('posts', ['id' => $id]);
+        // Trang đang làm trang chủ / trang bài viết bị xoá hẳn: trả cài đặt về mặc định (trang chủ = danh sách bài).
+        // Chuyển vào thùng rác thì giữ nguyên — frontend tự hiện danh sách bài, khôi phục trang là trở lại như cũ.
+        if ($id === (int) option('page_on_front', 0)) {
+            update_option('page_on_front', 0);
+            update_option('page_for_posts', 0);
+        } elseif ($id === (int) option('page_for_posts', 0)) {
+            update_option('page_for_posts', 0);
+        }
     }
 
     /** URL công khai của bài theo cấu trúc permalink hiện tại. */
     public static function permalink(array $post): string
     {
         if (($post['type'] ?? 'post') === 'page') {
+            if ((int) $post['id'] === (int) option('page_on_front', 0)) {
+                return site_url('/');
+            }
             return site_url('/' . Pages::path($post) . '/');
         }
         $structure = (string) option('permalink_structure', '/%postname%/');
         $extra = [];
         if (str_contains($structure, '%category%')) {
-            $catId = (int) db()->value(
-                "SELECT t.id FROM {terms} t JOIN {post_terms} pt ON pt.term_id = t.id WHERE pt.post_id = ? AND t.taxonomy = 'category' ORDER BY t.id LIMIT 1",
-                [$post['id']]
-            );
+            // Dùng chuyên mục đã gắn sẵn (Posts::attachTerms) nếu có để khỏi truy vấn lại trong vòng lặp.
+            $catId = isset($post['categories'])
+                ? (int) (min(array_column($post['categories'], 'id') ?: [0]))
+                : (int) db()->value(
+                    "SELECT t.id FROM {terms} t JOIN {post_terms} pt ON pt.term_id = t.id WHERE pt.post_id = ? AND t.taxonomy = 'category' ORDER BY t.id LIMIT 1",
+                    [$post['id']]
+                );
             $extra['category_path'] = $catId ? Terms::path($catId) : 'chua-phan-loai';
         }
         if (str_contains($structure, '%author%')) {
-            $extra['author'] = (string) db()->value('SELECT username FROM {users} WHERE id = ?', [$post['author_id']]);
+            $extra['author'] = (string) ($post['author_username'] ?? db()->value('SELECT username FROM {users} WHERE id = ?', [$post['author_id']]));
         }
         return site_url(Permalink::build($structure, $post + $extra));
     }

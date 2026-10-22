@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 $u = current_user();
 $links = array_filter([
     can('edit_posts') ? ['/admin/posts/new', 'pen-line', 'Viết bài mới'] : null,

@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 /** Vẽ một field tuỳ biến. Biến: $f (định nghĩa), $value, $errors */
 $name = 'meta[' . $f['key'] . ']';
 $id = 'meta-' . $f['key'];
@@ -14,7 +15,7 @@ $attrs = function () use ($f) {
     if ($f['type'] === 'text' && $f['max'] !== null) {
         $a .= ' maxlength="' . (int) $f['max'] . '"';
     }
-    return $a . ($f['placeholder'] !== '' ? ' placeholder="' . e($f['placeholder']) . '"' : '');
+    return $a . ($f['placeholder'] !== '' ? ' placeholder="' . e($f['placeholder']) . '"' : '') . ($f['ai_role'] ? ' data-ai-role="' . e($f['ai_role']) . '"' : '');
 };
 $inputType = ['text' => 'text', 'number' => 'number', 'url' => 'url', 'email' => 'email', 'date' => 'date', 'color' => 'color'][$f['type']] ?? 'text';
 
@@ -65,7 +66,7 @@ $single = function (string $inName, mixed $v, string $inId = '') use ($f, $inv, 
     </div>
 
   <?php elseif ($f['type'] === 'textarea'): ?>
-    <textarea class="input<?= $inv ?>" id="<?= e($id) ?>" name="<?= e($name) ?>" rows="4"<?= $f['placeholder'] !== '' ? ' placeholder="' . e($f['placeholder']) . '"' : '' ?><?= $f['max'] ? ' maxlength="' . (int) $f['max'] . '"' : '' ?>><?= e((string) $value) ?></textarea>
+    <textarea class="input<?= $inv ?>" id="<?= e($id) ?>" name="<?= e($name) ?>" rows="4"<?= $f['ai_role'] ? ' data-ai-role="' . e($f['ai_role']) . '"' : '' ?><?= $f['placeholder'] !== '' ? ' placeholder="' . e($f['placeholder']) . '"' : '' ?><?= $f['max'] ? ' maxlength="' . (int) $f['max'] . '"' : '' ?>><?= e((string) $value) ?></textarea>
 
   <?php elseif ($f['type'] === 'select'): ?>
     <select class="input<?= $inv ?>" id="<?= e($id) ?>" name="<?= e($name) ?>">

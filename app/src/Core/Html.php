@@ -28,9 +28,14 @@ final class Html
         }
         $doc = new DOMDocument('1.0', 'UTF-8');
         libxml_use_internal_errors(true);
-        $doc->loadHTML('<?xml encoding="UTF-8"><div id="__lq">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        // Một byte UTF-8 hỏng làm libxml chuyển cả chuỗi sang Latin-1 → toàn bộ tiếng Việt thành mojibake: thay byte hỏng trước.
+        $doc->loadHTML('<?xml encoding="UTF-8"><div id="__lq">' . mb_scrub($html, 'UTF-8') . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
         $root = $doc->getElementById('__lq') ?? $doc->documentElement;
+        // "</div>" thừa trong nội dung đóng luôn thẻ bọc: phần phía sau thành anh em của nó — gom lại kẻo bị mất khi xuất.
+        while ($root->nextSibling) {
+            $root->appendChild($root->nextSibling);
+        }
         self::clean($root);
 
         $out = '';

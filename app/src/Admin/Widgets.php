@@ -41,9 +41,36 @@ final class Widgets
             'sizes' => $sizes ?: [4],
             'cap' => (string) ($def['cap'] ?? 'access_admin'),
             'default' => (bool) ($def['default'] ?? false),
-            'group' => (string) ($def['group'] ?? 'Plugin'),
+            'group' => (string) ($def['group'] ?? 'Khác'),
+            'source' => self::source(),
             'render' => $def['render'],
         ];
+    }
+
+    /**
+     * Plugin/theme đã gọi register(): dò ngược call stack tìm tệp nằm trong content/plugins/<slug>/ hoặc content/themes/<slug>/.
+     * Nhờ vậy plugin không phải tự khai báo, và đăng ký muộn (trong hook) vẫn nhận đúng.
+     * @return array{type:string, slug:string, name:string}
+     */
+    private static function source(): array
+    {
+        static $cache = [];
+        $roots = ['plugin' => \LQ\Core\Plugins::dir() . '/', 'theme' => \LQ\Core\Themes::dir() . '/'];
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+            $file = str_replace('\\', '/', (string) ($frame['file'] ?? ''));
+            foreach ($roots as $type => $root) {
+                if (!str_starts_with($file, $root)) {
+                    continue;
+                }
+                $slug = strstr(substr($file, strlen($root)), '/', true);
+                if ($slug === false || $slug === '') {
+                    continue;
+                }
+                $meta = $cache["$type/$slug"] ??= $type === 'plugin' ? \LQ\Core\Plugins::read($slug) : \LQ\Core\Themes::read($slug);
+                return ['type' => $type, 'slug' => $slug, 'name' => (string) ($meta['name'] ?? $slug)];
+            }
+        }
+        return ['type' => 'core', 'slug' => '', 'name' => ''];
     }
 
     /** Widget người dùng hiện tại được phép dùng. */
@@ -122,6 +149,7 @@ final class Widgets
         if (!$w) {
             return '';
         }
+        $level = ob_get_level();
         ob_start();
         try {
             $ret = ($w['render'])($size);
@@ -130,24 +158,40 @@ final class Widgets
             }
             $inner = (string) ob_get_clean();
         } catch (Throwable $e) {
-            ob_end_clean();
+            // Dọn hết buffer widget mở dở (vd. View::capture ném lỗi giữa chừng) chứ không chỉ một tầng — sót tầng nào thì
+            // phần HTML dở dang của widget bị đẩy lên trước <!doctype> của trang.
+            while (ob_get_level() > $level) {
+                ob_end_clean();
+            }
             error_log("[LQCMS] Widget $id lỗi: " . $e->getMessage());
             $inner = '<section class="tile"><div class="tile-title"><div><h3>' . e($w['title']) . '</h3><p>Widget gặp lỗi khi hiển thị.</p></div></div></section>';
         }
         return View::capture('admin/widgets/_frame', ['w' => $w, 'size' => $size, 'inner' => $inner]);
     }
 
-    /** Danh sách cho ngăn "Thêm widget", nhóm theo group. */
+    /**
+     * Danh sách cho ngăn "Thêm widget", chia nhóm: widget có sẵn trước, rồi theme, rồi mỗi plugin một nhóm (theo tên).
+     * @return list<array{key:string, type:string, title:string, items:list<array>}>
+     */
     public static function catalog(): array
     {
-        return array_values(array_map(fn ($w) => [
-            'id' => $w['id'],
-            'title' => $w['title'],
-            'description' => $w['description'],
-            'icon' => $w['icon'],
-            'size' => $w['size'],
-            'group' => $w['group'],
-        ], self::available()));
+        $groups = [];
+        foreach (self::available() as $w) {
+            $src = $w['source'];
+            $key = $src['type'] === 'core' ? 'core/' . $w['group'] : $src['type'] . '/' . $src['slug'];
+            $groups[$key] ??= ['key' => $key, 'type' => $src['type'], 'title' => $src['type'] === 'core' ? $w['group'] : $src['name'], 'items' => []];
+            $groups[$key]['items'][] = [
+                'id' => $w['id'],
+                'title' => $w['title'],
+                'description' => $w['description'],
+                'icon' => $w['icon'],
+                'size' => $w['size'],
+            ];
+        }
+        $rank = ['core' => 0, 'theme' => 1, 'plugin' => 2];
+        // usort giữ nguyên thứ tự khi bằng nhau (PHP 8), nên các nhóm có sẵn giữ thứ tự đăng ký.
+        usort($groups, fn ($a, $b) => ($rank[$a['type']] <=> $rank[$b['type']]) ?: ($a['type'] === 'core' ? 0 : strcasecmp($a['title'], $b['title'])));
+        return $groups;
     }
 
     private static function loadCore(): void

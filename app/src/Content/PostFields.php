@@ -65,6 +65,8 @@ final class PostFields
             'template' => isset($args['template']) ? array_values((array) $args['template']) : null, // chỉ hiện với mẫu trang này
             'validate' => $args['validate'] ?? null,   // fn ($value, ?array $post): ?string  — trả thông báo lỗi
             'sanitize' => $args['sanitize'] ?? null,   // fn ($value): mixed
+            // Trợ lý AI điền gợi ý vào field có vai trò này: 'sapo' (đoạn dẫn) hoặc 'seo' (mô tả cho công cụ tìm kiếm).
+            'ai_role' => in_array($args['ai_role'] ?? null, ['sapo', 'seo'], true) ? $args['ai_role'] : null,
         ];
     }
 
@@ -129,8 +131,15 @@ final class PostFields
     /** Giá trị hiện tại để đổ vào form (ưu tiên dữ liệu vừa nhập khi validate lỗi). */
     public static function value(array $field, ?array $post, ?array $old): mixed
     {
-        if (is_array($old) && array_key_exists($field['key'], $old)) {
-            return $old[$field['key']];
+        if (is_array($old)) {
+            if (array_key_exists($field['key'], $old)) {
+                return $old[$field['key']];
+            }
+            // Checkbox bỏ chọn thì trình duyệt không gửi gì: form vừa gửi lại (lỗi/xung đột) phải hiện đúng là đã bỏ chọn,
+            // không lấy giá trị đã lưu — nếu không người dùng lưu lần nữa sẽ bật lại nó mà không hay.
+            if ($field['type'] === 'checkbox') {
+                return false;
+            }
         }
         if ($post) {
             return PostMeta::get((int) $post['id'], $field['key'], $field['default']);
@@ -204,6 +213,33 @@ final class PostFields
         return [$errors, $values];
     }
 
+    /**
+     * Kiểm tra & làm sạch MỘT PHẦN field (trợ lý AI, API…) bằng đúng quy trình của form: kiểu, lựa chọn, bắt buộc,
+     * sanitize/validate của theme/plugin, filter post_field_validate. Field không gửi giữ nguyên — giá trị hiện có
+     * của bài chỉ được đưa vào để collect() chạy đủ, không trả về và không báo lỗi thay cho chúng.
+     * @param array<string, mixed> $given {key: giá trị thô — mảng cho field repeat, true/false cho checkbox, khoá lựa chọn cho select/radio}
+     * @return array{0: list<string>, 1: array<string, mixed>} [lỗi, giá trị đã làm sạch của các field trong $given]
+     */
+    public static function collectSome(array $given, ?array $post, string $type, ?string $template = null): array
+    {
+        $all = self::fields($type);
+        $errors = [];
+        foreach (array_keys($given) as $k) {
+            if (!isset($all[$k])) {
+                $errors[] = "Field \"$k\" chưa được đăng ký cho loại nội dung này (hoặc bạn không có quyền sửa).";
+            } elseif (!self::matchesTemplate($all[$k], $template)) {
+                $errors[] = "Field \"$k\" chỉ dùng cho mẫu trang: " . implode(', ', $all[$k]['template']) . '.';
+            }
+        }
+        if ($errors) {
+            return [$errors, []];
+        }
+        $current = $post ? PostMeta::all((int) $post['id']) : [];
+        [$errs, $values] = self::collect($given + $current, $post, $type, $template);
+        $mine = array_flip(array_map(fn ($k) => "meta.$k", array_keys($given)));
+        return [array_values(array_intersect_key($errs, $mine)), array_intersect_key($values, $given)];
+    }
+
     /** Làm sạch một giá trị theo kiểu. @return array{0: mixed, 1: ?string} */
     private static function clean(array $f, mixed $raw): array
     {
@@ -255,11 +291,21 @@ final class PostFields
         return [$v, null];
     }
 
+    /**
+     * Ghi một field. Field có 'default' mà giá trị rỗng: lưu hẳn giá trị rỗng — xoá dòng thì lần mở form sau lại hiện
+     * giá trị mặc định (value()) và lần lưu kế tiếp ghi nó vào, tức là không bao giờ xoá trắng được.
+     */
+    public static function store(int $postId, string $key, mixed $value): void
+    {
+        $default = self::$fields[$key]['default'] ?? null;
+        PostMeta::set($postId, $key, $value, $default !== null && $default !== '' && $default !== []);
+    }
+
     /** Lưu giá trị đã làm sạch và gọi hàm lưu của các meta box tự vẽ. */
     public static function save(int $postId, array $values, array $input, string $type = 'post'): void
     {
         foreach ($values as $key => $value) {
-            PostMeta::set($postId, $key, $value);
+            self::store($postId, $key, $value);
         }
         foreach (self::$boxes as $b) {
             if (is_callable($b['save']) && Auth::can($b['cap']) && in_array($type, $b['post_type'], true)) {

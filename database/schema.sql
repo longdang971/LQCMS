@@ -1,5 +1,7 @@
 -- LQCMS schema (MariaDB 10.6+ / MySQL 8+). {name} sẽ được thay bằng prefix + name khi cài.
 -- Mọi cột DATETIME lưu theo UTC.
+-- Tên khoá ngoại cũng viết dạng {fk_...} để có prefix: MySQL 8 / MariaDB < 12 bắt tên constraint duy nhất trong cả database,
+-- không có prefix thì cài site thứ hai (prefix khác) chung database sẽ lỗi "Duplicate foreign key constraint name".
 
 CREATE TABLE IF NOT EXISTS {users} (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -23,7 +25,7 @@ CREATE TABLE IF NOT EXISTS {user_tokens} (
   expires_at DATETIME NOT NULL,
   UNIQUE KEY uniq_selector (selector),
   KEY idx_user (user_id),
-  CONSTRAINT fk_tokens_user FOREIGN KEY (user_id) REFERENCES {users} (id) ON DELETE CASCADE
+  CONSTRAINT {fk_tokens_user} FOREIGN KEY (user_id) REFERENCES {users} (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS {login_attempts} (
@@ -59,7 +61,7 @@ CREATE TABLE IF NOT EXISTS {posts} (
   KEY idx_status_date (type, status, published_at),
   KEY idx_author (author_id),
   KEY idx_type_parent (type, parent_id),
-  CONSTRAINT fk_posts_author FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
+  CONSTRAINT {fk_posts_author} FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS {terms} (
@@ -78,8 +80,8 @@ CREATE TABLE IF NOT EXISTS {post_terms} (
   term_id BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (post_id, term_id),
   KEY idx_term (term_id),
-  CONSTRAINT fk_pt_post FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE,
-  CONSTRAINT fk_pt_term FOREIGN KEY (term_id) REFERENCES {terms} (id) ON DELETE CASCADE
+  CONSTRAINT {fk_pt_post} FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE,
+  CONSTRAINT {fk_pt_term} FOREIGN KEY (term_id) REFERENCES {terms} (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Slug cũ của bài viết, để frontend 301 về link mới khi đổi slug (giữ SEO).
@@ -89,7 +91,7 @@ CREATE TABLE IF NOT EXISTS {old_slugs} (
   slug VARCHAR(191) NOT NULL,
   created_at DATETIME NOT NULL,
   KEY idx_slug (slug),
-  CONSTRAINT fk_old_post FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE
+  CONSTRAINT {fk_old_post} FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Dữ liệu riêng của từng bài do theme/plugin khai báo (lq_add_post_field). Giá trị lưu JSON.
@@ -100,7 +102,7 @@ CREATE TABLE IF NOT EXISTS {post_meta} (
   meta_value LONGTEXT NOT NULL,
   UNIQUE KEY uniq_post_key (post_id, meta_key),
   KEY idx_key (meta_key),
-  CONSTRAINT fk_meta_post FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE
+  CONSTRAINT {fk_meta_post} FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Thư viện media (chỉ lưu ảnh gốc).
@@ -118,7 +120,7 @@ CREATE TABLE IF NOT EXISTS {media} (
   created_at DATETIME NOT NULL,
   UNIQUE KEY uniq_path (path),
   KEY idx_created (created_at),
-  CONSTRAINT fk_media_author FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
+  CONSTRAINT {fk_media_author} FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Lịch sử phiên bản (kind = revision, mỗi lần bấm lưu) và bản tự lưu (kind = autosave, mỗi người một bản).
@@ -131,6 +133,15 @@ CREATE TABLE IF NOT EXISTS {post_revisions} (
   author_id BIGINT UNSIGNED NULL,
   created_at DATETIME NOT NULL,
   KEY idx_post_kind (post_id, kind, created_at),
-  CONSTRAINT fk_rev_post FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE,
-  CONSTRAINT fk_rev_author FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
+  CONSTRAINT {fk_rev_post} FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE,
+  CONSTRAINT {fk_rev_author} FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Đếm lượt gọi action AJAX công khai theo IP, mỗi dòng là một cửa sổ 1 phút.
+CREATE TABLE IF NOT EXISTS {rate_limits} (
+  bucket VARCHAR(191) NOT NULL,
+  window_start INT UNSIGNED NOT NULL,
+  hits INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket, window_start),
+  KEY idx_window (window_start)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -8,8 +8,9 @@ use LQ\Core\Database;
 use LQ\Core\Slug;
 
 /**
- * Thư viện media: lưu ảnh vào public/content/uploads/YYYY/MM/ và ghi vào bảng media.
- * Chỉ lưu đúng tệp gốc người dùng tải lên: không tạo cỡ ảnh phụ, không nén hay xoay lại.
+ * Thư viện media: lưu ảnh vào content/uploads/YYYY/MM/ và ghi vào bảng media.
+ * Mỗi ảnh chỉ có MỘT tệp, không tạo cỡ ảnh phụ. Mặc định giữ nguyên tệp gốc (option media_keep_original);
+ * khi tắt, ảnh lớn hơn media_max_width × media_max_height được thu nhỏ ngay lúc tải lên (xem fitImage).
  */
 final class Media
 {
@@ -23,8 +24,11 @@ final class Media
 
     /* ---------- Tải lên ---------- */
 
-    /** @return array{0: ?array, 1: ?string} [media, lỗi] */
-    public static function upload(array $file): array
+    /**
+     * $name: tên muốn đặt cho tệp (vd. slug bài khi tải ảnh đại diện) thay cho tên tệp gốc; trùng thì thêm -2, -3…
+     * @return array{0: ?array, 1: ?string} [media, lỗi]
+     */
+    public static function upload(array $file, string $name = ''): array
     {
         if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             return [null, match ($file['error'] ?? 0) {
@@ -53,15 +57,30 @@ final class Media
             return [null, 'Không tạo được thư mục uploads (kiểm tra quyền ghi).'];
         }
         $ext = self::MIME[$mime];
-        $base = Slug::make(pathinfo((string) $file['name'], PATHINFO_FILENAME), 80) ?: 'anh';
+        $base = Slug::make($name, 80) ?: Slug::make(pathinfo((string) $file['name'], PATHINFO_FILENAME), 80) ?: 'anh';
         $name = "$base.$ext";
-        for ($i = 2; is_file("$dir/$name"); $i++) {
+        // Tên phải trống cả trên đĩa lẫn trong bảng media (bản ghi còn mà tệp đã mất → INSERT trùng uniq_path, lỗi 500).
+        // Giữ chỗ bằng fopen 'x' (nguyên tử): hai lượt tải cùng tên chạy song song không ghi đè tệp của nhau.
+        for ($i = 2; ; $i++) {
+            if (!is_file("$dir/$name") && !self::findByPath("/content/uploads/$sub/$name")) {
+                if ($h = @fopen("$dir/$name", 'x')) {
+                    fclose($h);
+                    break;
+                }
+                if (!is_file("$dir/$name")) {
+                    return [null, 'Không lưu được tệp.'];
+                }
+            }
             $name = "$base-$i.$ext";
         }
         if (!move_uploaded_file($file['tmp_name'], "$dir/$name")) {
+            @unlink("$dir/$name");
             return [null, 'Không lưu được tệp.'];
         }
         @chmod("$dir/$name", 0644);
+        if (!option('media_keep_original', true)) {
+            self::fitImage("$dir/$name", $mime);
+        }
 
         $media = self::register("/content/uploads/$sub/$name", (string) $file['name'], (int) ($_SESSION['uid'] ?? 0) ?: null);
         do_action('media_uploaded', $media);
@@ -69,10 +88,77 @@ final class Media
         return [$media, null];
     }
 
+    /**
+     * Thu nhỏ ảnh (ghi đè tại chỗ) cho vừa khung tối đa trong Cài đặt › Media; ảnh nhỏ hơn khung thì để nguyên.
+     * GIF bỏ qua vì GD làm mất ảnh động. JPEG có EXIF Orientation được xoay đúng chiều trước khi thu nhỏ —
+     * GD không ghi lại EXIF, bỏ bước này thì ảnh chụp dọc từ điện thoại sẽ bị nằm ngang.
+     */
+    private static function fitImage(string $abs, string $mime): void
+    {
+        $maxW = max(0, (int) option('media_max_width', 2560));
+        $maxH = max(0, (int) option('media_max_height', 2560));
+        $quality = min(100, max(10, (int) option('media_quality', 82)));
+        $load = ['image/jpeg' => 'imagecreatefromjpeg', 'image/png' => 'imagecreatefrompng', 'image/webp' => 'imagecreatefromwebp', 'image/avif' => 'imagecreatefromavif'][$mime] ?? null;
+        if (($maxW === 0 && $maxH === 0) || !$load || !function_exists($load) || !($size = @getimagesize($abs))) {
+            return;
+        }
+        $orientation = $mime === 'image/jpeg' && function_exists('exif_read_data') ? (int) (@exif_read_data($abs)['Orientation'] ?? 1) : 1;
+        [$w, $h] = in_array($orientation, [5, 6, 7, 8], true) ? [$size[1], $size[0]] : [$size[0], $size[1]];
+        $scale = min($maxW ? $maxW / $w : 1, $maxH ? $maxH / $h : 1);
+        if ($scale >= 1) {
+            return;
+        }
+        $src = @$load($abs);
+        if (!$src) {
+            error_log("[LQCMS] Không đọc được ảnh để thu nhỏ: $abs");
+            return;
+        }
+        $src = match ($orientation) {
+            2 => self::flip($src, IMG_FLIP_HORIZONTAL),
+            3 => imagerotate($src, 180, 0),
+            4 => self::flip($src, IMG_FLIP_VERTICAL),
+            5 => self::flip(imagerotate($src, -90, 0), IMG_FLIP_HORIZONTAL),
+            6 => imagerotate($src, -90, 0),
+            7 => self::flip(imagerotate($src, 90, 0), IMG_FLIP_HORIZONTAL),
+            8 => imagerotate($src, 90, 0),
+            default => $src,
+        };
+        $nw = max(1, (int) round($w * $scale));
+        $nh = max(1, (int) round($h * $scale));
+        $dst = imagecreatetruecolor($nw, $nh);
+        if ($mime !== 'image/jpeg') {
+            // Giữ nền trong suốt của PNG/WEBP/AVIF.
+            imagealphablending($dst, false);
+            imagesavealpha($dst, true);
+            imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 0, 0, 0, 127));
+        }
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, imagesx($src), imagesy($src));
+        $tmp = $abs . '.tmp';
+        $ok = match ($mime) {
+            'image/jpeg' => imagejpeg($dst, $tmp, $quality),
+            'image/png' => imagepng($dst, $tmp, 6),
+            'image/webp' => imagewebp($dst, $tmp, $quality),
+            'image/avif' => imageavif($dst, $tmp, $quality),
+        };
+        // Ghi ra tệp tạm rồi mới thay: lỗi giữa chừng không làm hỏng ảnh đã tải lên.
+        if ($ok && @rename($tmp, $abs)) {
+            @chmod($abs, 0644);
+        } else {
+            @unlink($tmp);
+            error_log("[LQCMS] Thu nhỏ ảnh thất bại, giữ nguyên tệp gốc: $abs");
+        }
+    }
+
+    private static function flip(\GdImage $im, int $mode): \GdImage
+    {
+        imageflip($im, $mode);
+        return $im;
+    }
+
     /** Ghi một tệp đã nằm trong uploads vào bảng media. */
     public static function register(string $path, string $originalName = '', ?int $authorId = null, ?string $createdAt = null): array
     {
-        $abs = LQ_PUBLIC . $path;
+        $abs = LQ_ROOT . $path;
         $info = @getimagesize($abs) ?: [null, null];
         $mime = (string) (new finfo(FILEINFO_MIME_TYPE))->file($abs);
         $id = db()->insert('media', [
@@ -190,7 +276,7 @@ final class Media
     {
         $like = '%' . addcslashes($media['url'], '%_\\') . '%';
         return db()->all(
-            "SELECT p.id, p.title, p.type, p.status FROM {posts} p
+            "SELECT p.id, p.title, p.type, p.status, p.author_id FROM {posts} p
              WHERE p.status <> 'trash' AND (p.featured_image = ? OR p.content LIKE ?
                    OR EXISTS (SELECT 1 FROM {post_meta} pm WHERE pm.post_id = p.id AND pm.meta_value LIKE ?))
              ORDER BY p.updated_at DESC LIMIT 20",
@@ -216,7 +302,7 @@ final class Media
             return false;
         }
         do_action('media_deleting', $m);
-        $abs = realpath(LQ_PUBLIC . $m['url']);
+        $abs = realpath(LQ_ROOT . $m['url']);
         if ($abs && str_starts_with($abs, realpath(LQ_CONTENT . '/uploads') . DIRECTORY_SEPARATOR)) {
             @unlink($abs);
         }
@@ -225,6 +311,97 @@ final class Media
             $db->delete('media', ['id' => $id]);
         });
         return true;
+    }
+
+    /**
+     * Ảnh không còn được dùng ở đâu: đường dẫn không xuất hiện trong ảnh đại diện, nội dung mọi bài/trang (kể cả nháp,
+     * thùng rác), field tuỳ biến (post_meta), cài đặt (options), mô tả chuyên mục/thẻ, hay mã nguồn theme/plugin.
+     * Bỏ qua ảnh tải lên chưa tới $minAgeHours giờ — có thể đang nằm trong bài chưa lưu. Bản tự lưu có tính; bản sửa cũ
+     * (post_revisions kind = revision) không tính: khôi phục một bản sửa cũ dùng ảnh đã xoá thì ảnh đó không hiện.
+     * @return list<array> bản ghi đã present(), ảnh mới nhất trước
+     */
+    public static function unused(int $minAgeHours = 24): array
+    {
+        $parts = [
+            ...db()->column('SELECT featured_image FROM {posts} WHERE featured_image IS NOT NULL'),
+            ...db()->column('SELECT content FROM {posts}'),
+            // Bản tự lưu là phần đang soạn chưa bấm lưu (vd. vừa chèn một ảnh cũ trong thư viện) — xoá ảnh đó thì
+            // người viết khôi phục/lưu bài sẽ mất ảnh. Chỉ bản sửa cũ (kind = revision) mới không tính.
+            ...db()->column("SELECT content FROM {post_revisions} WHERE kind = 'autosave'"),
+            ...db()->column('SELECT meta_value FROM {post_meta}'),
+            ...db()->column('SELECT value FROM {options}'),
+            ...db()->column("SELECT description FROM {terms} WHERE description <> ''"),
+        ];
+        foreach ([LQ_CONTENT . '/themes', LQ_CONTENT . '/plugins'] as $dir) {
+            $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $f) {
+                if ($f->isFile() && preg_match('/\.(php|css|js|json|html?)$/i', $f->getFilename()) && $f->getSize() < 1048576) {
+                    $parts[] = (string) file_get_contents($f->getPathname());
+                }
+            }
+        }
+        // JSON trong options/post_meta escape dấu "/" thành "\/" — gỡ ra để tìm được đường dẫn.
+        $haystack = str_replace('\\/', '/', implode("\n", array_map('strval', $parts)));
+        $rows = db()->all('SELECT m.*, u.display_name AS author_name FROM {media} m LEFT JOIN {users} u ON u.id = m.author_id
+                           WHERE m.created_at < ? ORDER BY m.id DESC', [gmdate('Y-m-d H:i:s', time() - $minAgeHours * 3600)]);
+        // Tệp tên có dấu cách/Unicode/& (nhập từ uploads cũ qua importExisting) thường nằm trong nội dung ở dạng %20… hoặc &amp;
+        // — chỉ so dạng thô thì ảnh đang dùng bị coi là thừa và bị xoá.
+        $used = function (string $path) use ($haystack): bool {
+            foreach (array_unique([$path, implode('/', array_map('rawurlencode', explode('/', $path))), htmlspecialchars($path, ENT_QUOTES)]) as $v) {
+                if (str_contains($haystack, $v)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        return array_values(array_map([self::class, 'present'], array_filter($rows, fn ($r) => !$used((string) $r['path']))));
+    }
+
+    /**
+     * Đặt lại tên ảnh đại diện theo slug của bài khi ảnh được tải lên lúc bài chưa có slug/tiêu đề.
+     * Chỉ đổi khi chắc không làm hỏng chỗ khác: ảnh là ảnh đại diện hiện tại của bài, do chính người này tải lên
+     * trong 24 giờ qua, và chưa bài nào khác dùng (ảnh đại diện hay trong nội dung). Đường dẫn mới được cập nhật ở
+     * thư viện media, ảnh đại diện và nội dung của bài. @return ?string đường dẫn mới, null nếu không đổi.
+     */
+    public static function adoptPostSlug(int $id, array $post): ?string
+    {
+        $m = db()->row('SELECT * FROM {media} WHERE id = ?', [$id]);
+        $base = Slug::make((string) ($post['slug'] ?? ''), 80);
+        if (!$m || $base === '' || $m['path'] !== ($post['featured_image'] ?? null)
+            || (int) $m['author_id'] !== (int) (current_user()['id'] ?? 0)
+            || $m['created_at'] < gmdate('Y-m-d H:i:s', time() - 86400)) {
+            return null;
+        }
+        $old = (string) $m['path'];
+        $dir = dirname($old);
+        $ext = pathinfo($old, PATHINFO_EXTENSION);
+        if (preg_match('/^' . preg_quote($base, '/') . '(-\d+)?$/', pathinfo($old, PATHINFO_FILENAME))) {
+            return null; // đã mang tên theo slug
+        }
+        $like = '%' . addcslashes($old, '%_\\') . '%';
+        if (db()->value('SELECT 1 FROM {posts} WHERE id <> ? AND (featured_image = ? OR content LIKE ?) LIMIT 1', [$post['id'], $old, $like])) {
+            return null;
+        }
+        // Field ảnh (post_meta) — của bài khác hay chính bài này — cũng trỏ tới ảnh: đổi tên sẽ làm hỏng field đó.
+        if (db()->value('SELECT 1 FROM {post_meta} WHERE meta_key <> ? AND meta_value LIKE ? LIMIT 1', ['_edit_lock', $like])) {
+            return null;
+        }
+        $name = "$base.$ext";
+        for ($i = 2; is_file(LQ_ROOT . "$dir/$name") || self::findByPath("$dir/$name"); $i++) {
+            $name = "$base-$i.$ext";
+        }
+        $new = "$dir/$name";
+        if (!@rename(LQ_ROOT . $old, LQ_ROOT . $new)) {
+            return null;
+        }
+        db()->transaction(function (Database $db) use ($id, $old, $new, $post): void {
+            $db->update('media', ['path' => $new], ['id' => $id]);
+            $db->query('UPDATE {posts} SET featured_image = ? WHERE featured_image = ?', [$new, $old]);
+            // Ảnh cũng đã được chèn vào nội dung bài (đường dẫn tương đối hoặc tuyệt đối đều chứa $old).
+            $db->query('UPDATE {posts} SET content = REPLACE(content, ?, ?) WHERE id = ?', [$old, $new, $post['id']]);
+        });
+        do_action('media_renamed', $id, $old, $new);
+        return $new;
     }
 
     public static function canEdit(array $m): bool

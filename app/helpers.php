@@ -102,10 +102,22 @@ function apply_filters(string $hook, mixed $value, mixed ...$args): mixed
 /**
  * Plugin đăng ký một trang riêng trong admin: /admin/plugin/{slug}.
  * $callback in ra HTML của trang (đã nằm trong layout admin).
+ * $keywords: nội dung chính của trang (vd. "thời gian giữ cache, loại trừ URL") — để thanh ⌘K và trợ lý AI tìm đúng trang.
  */
-function lq_add_admin_page(string $slug, string $title, callable $callback, string $icon = 'puzzle', string $cap = 'manage_options'): void
+function lq_add_admin_page(string $slug, string $title, callable $callback, string $icon = 'puzzle', string $cap = 'manage_options', string $keywords = ''): void
 {
-    \LQ\Admin\PluginPages::add($slug, $title, $callback, $icon, $cap);
+    \LQ\Admin\PluginPages::add($slug, $title, $callback, $icon, $cap, $keywords);
+}
+
+/**
+ * Cho trợ lý AI làm một việc của plugin/theme. AI chỉ dùng được những việc khai báo ở đây.
+ * $args: description (bắt buộc), run (callable(array $args): mixed, bắt buộc), params ['tên' => 'integer'|['type' => …, 'description' => …]],
+ * required [tên tham số], cap (mặc định manage_options), write (true = có thay đổi → người dùng bấm Chạy mới thực hiện), label.
+ * Xem LQ\AI\PluginTools.
+ */
+function lq_add_ai_tool(string $name, array $args): void
+{
+    \LQ\AI\PluginTools::register($name, $args);
 }
 
 /**
@@ -170,6 +182,38 @@ function lq_add_cron_task(string $name, int $intervalSeconds, callable $callback
     \LQ\Core\Cron::add($name, $intervalSeconds, $callback, $label);
 }
 
+/**
+ * Endpoint AJAX /ajax/{action} cho theme/plugin. $callback(array $input) trả mảng (JSON), chuỗi (HTML) hoặc null.
+ * $opts: public, method (POST|GET|ANY), cap, csrf, rate — xem LQ\Front\Ajax.
+ */
+function lq_add_ajax(string $action, callable $callback, array $opts = []): void
+{
+    \LQ\Front\Ajax::register($action, $callback, $opts);
+}
+
+/**
+ * Thêm mục vào thanh quản trị trên trang web (chỉ người đã đăng nhập thấy).
+ * $args: label, url, parent (id mục cha), side ('left' | 'right'), priority (mục có sẵn: site 10, new 20, edit 30,
+ * preview 40, template 50; account 10 bên phải; không ghi = cuối), icon (tên có sẵn hoặc chuỗi <svg>), meta, title,
+ * class, cap, method ('post'), html (chuỗi hoặc callable — in nguyên, tự escape dữ liệu bên trong).
+ */
+function lq_add_admin_bar_item(string $id, array $args): void
+{
+    \LQ\Front\AdminBar::add($id, $args);
+}
+
+/** Bỏ một mục khỏi thanh quản trị (kèm các mục con), vd. lq_remove_admin_bar_item('template'). */
+function lq_remove_admin_bar_item(string $id): void
+{
+    \LQ\Front\AdminBar::remove($id);
+}
+
+/** Dừng callback AJAX và trả {ok: false, message} với mã HTTP $status. */
+function lq_ajax_error(string $message, int $status = 400, array $extra = []): never
+{
+    throw new \LQ\Front\AjaxError($message, $status, $extra);
+}
+
 /* ---------- URL & request ---------- */
 
 function url(string $path = ''): string
@@ -189,14 +233,18 @@ function site_url(string $path = ''): string
 
 function asset(string $path): string
 {
-    $file = LQ_PUBLIC . '/assets/' . ltrim($path, '/');
+    $file = LQ_ROOT . '/assets/' . ltrim($path, '/');
     $v = is_file($file) ? (string) filemtime($file) : LQ_VERSION;
     return '/assets/' . ltrim($path, '/') . '?v=' . $v;
 }
 
 function request_path(): string
 {
-    $path = rawurldecode((string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH));
+    // Không dùng parse_url: nó trả false với "/foo:1/" (→ trang chủ thay vì 404) và coi "//admin" là tên host.
+    $uri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+    // Request dạng tuyệt đối ("GET http://host/path", HTTP/1.1 cho phép): bỏ scheme + host như parse_url từng làm.
+    $uri = (string) preg_replace('~^[a-z][a-z0-9+.-]*://[^/?#]*~i', '', $uri);
+    $path = rawurldecode(substr($uri, 0, strcspn($uri, '?#')));
     $path = '/' . trim($path, '/');
     return $path;
 }
@@ -246,7 +294,8 @@ function redirect_back(string $fallback): never
     $p = parse_url((string) ($_SERVER['HTTP_REFERER'] ?? ''));
     $refHost = isset($p['host']) ? $p['host'] . (isset($p['port']) ? ':' . $p['port'] : '') : '';
     if ($refHost !== '' && strcasecmp($refHost, (string) ($_SERVER['HTTP_HOST'] ?? '')) === 0) {
-        redirect(($p['path'] ?? '/') . (isset($p['query']) ? '?' . $p['query'] : ''));
+        // Referer "http://site//evil.com" có path "//evil.com" — trình duyệt hiểu là URL khác host: gộp dấu / và \ ở đầu.
+        redirect('/' . ltrim($p['path'] ?? '', '/\\') . (isset($p['query']) ? '?' . $p['query'] : ''));
     }
     redirect($fallback);
 }
@@ -255,7 +304,8 @@ function json_response(array $data, int $status = 200): never
 {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    // INVALID_UTF8_SUBSTITUTE: một chuỗi UTF-8 hỏng không được làm json_encode trả false (body rỗng).
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
 
@@ -302,6 +352,11 @@ function checked(mixed $a, mixed $b = true): string
 /** Xoá thư mục đệ quy (dùng khi xoá theme/plugin). */
 function rrmdir(string $dir): void
 {
+    // Thư mục là symlink (dev hay link plugin/theme từ nơi khác vào): chỉ gỡ link — đi theo link sẽ xoá sạch mã nguồn gốc.
+    if (is_link($dir)) {
+        unlink($dir);
+        return;
+    }
     if (!is_dir($dir)) {
         return;
     }
@@ -325,6 +380,21 @@ function field_error(array $errors, string $key): string
 function invalid(array $errors, string $key): string
 {
     return isset($errors[$key]) ? ' is-invalid' : '';
+}
+
+/* ---------- Phím tắt ---------- */
+
+/** Máy Mac/iPhone/iPad (đoán theo User-Agent) — để in ⌘ thay cho Ctrl. JS sẽ sửa lại nếu đoán sai. */
+function is_mac_client(): bool
+{
+    return (bool) preg_match('/Macintosh|Mac OS X|iPhone|iPad/i', (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+}
+
+/** Nhãn phím tắt có phím bổ trợ: kbd('S') -> <kbd>⌘S</kbd> trên Mac, <kbd>Ctrl S</kbd> trên Windows/Linux. */
+function kbd(string $key, string $class = ''): string
+{
+    $label = (is_mac_client() ? '⌘' : 'Ctrl ') . $key;
+    return '<kbd data-kbd="' . e($key) . '"' . ($class !== '' ? ' class="' . e($class) . '"' : '') . '>' . e($label) . '</kbd>';
 }
 
 /* ---------- Avatar, thumbnail, màu nhận diện ---------- */

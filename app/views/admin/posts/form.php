@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Content\Posts;
 use LQ\Core\View;
 
@@ -6,7 +7,8 @@ $isNew = $post === null;
 $status = $post['status'] ?? 'draft';
 $v = fn (string $k, mixed $d = '') => old($k, $post[$k] ?? $d);
 $oldCats = old('categories', null);
-$checkedCats = is_array($oldCats) ? array_map('intval', $oldCats) : $selectedCats;
+// Form gửi lại mà bỏ chọn hết chuyên mục thì trình duyệt không gửi "categories": hiện đúng là bỏ chọn, không lấy lại chuyên mục đã lưu.
+$checkedCats = is_array($oldCats) ? array_map('intval', $oldCats) : (!empty($_SESSION['_old_current']) ? [] : $selectedCats);
 $tagValue = old('tags', implode(', ', $tags));
 $localDate = '';
 if (!empty($post['published_at'])) {
@@ -33,6 +35,8 @@ $localDate = old('published_at', $localDate);
       <?php endif; ?>
       <?php if ($permalink): ?>
         <a class="link" href="<?= e($permalink) ?>" target="_blank" rel="noopener">Xem bài <?= icon('arrow-up-right') ?></a>
+      <?php elseif ($previewUrl ?? null): ?>
+        <a class="link" href="<?= e($previewUrl) ?>" target="_blank" rel="noopener">Xem trước <?= icon('arrow-up-right') ?></a>
       <?php endif; ?>
     </div>
     <?= field_error($errors, 'slug') ?>
@@ -71,6 +75,10 @@ $localDate = old('published_at', $localDate);
         <p class="help">Để trống để đăng ngay, chọn ngày tương lai để lên lịch. Múi giờ <?= e(option('timezone')) ?>.</p>
       </div>
       <div class="publish-actions">
+        <?php // ⌘⇧S / Ctrl+Shift+S: lưu nháp — bài mới/nháp thì lưu nháp, bài đã đăng/lên lịch/chờ duyệt thì giữ nguyên trạng thái (update), không gỡ bài. ?>
+        <button type="submit" name="action" value="<?= $isNew || $status === 'draft' ? 'draft' : 'update' ?>" hidden data-quick-save></button>
+        <?php // ⌘S / Ctrl+S: đăng (người không có quyền đăng thì máy chủ chuyển thành gửi duyệt; ngày tương lai thành lên lịch). ?>
+        <button type="submit" name="action" value="publish" hidden data-quick-publish></button>
         <?php if (in_array($status, ['published', 'scheduled'], true)): ?>
           <button class="btn btn-secondary" type="submit" name="action" value="draft">Về nháp</button>
           <button class="btn btn-accent" type="submit" name="action" value="update">Cập nhật</button>
@@ -128,6 +136,7 @@ $localDate = old('published_at', $localDate);
       <?= View::capture('admin/posts/_tax_box', ['t' => $t]) ?>
     <?php endforeach; ?>
 
+    <?= View::capture('admin/posts/_ai', ['post' => $post]) ?>
     <?= View::capture('admin/posts/_featured', ['post' => $post]) ?>
     <?php foreach ($boxes['side'] as $box): ?>
       <?= View::capture('admin/posts/_box', ['box' => $box, 'post' => $post, 'errors' => $errors]) ?>

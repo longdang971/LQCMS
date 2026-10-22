@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace LQ\Admin;
 
-use LQ\Core\Package;
 use LQ\Core\Plugins;
 use LQ\Core\View;
 
@@ -45,6 +44,11 @@ final class PluginsController
         Kernel::require('manage_plugins');
         $slug = input_str('plugin');
         $meta = Plugins::read($slug);
+        // Slug lạ / plugin vốn đang tắt: trước đây vẫn báo "Đã tắt plugin …" như thành công.
+        if (!Plugins::isActive($slug)) {
+            flash('error', 'Plugin không tồn tại hoặc đang tắt.');
+            redirect_back('/admin/plugins');
+        }
         Plugins::deactivate($slug);
         flash('success', 'Đã tắt plugin "' . ($meta['name'] ?? $slug) . '".');
         redirect_back('/admin/plugins');
@@ -63,7 +67,11 @@ final class PluginsController
             $uninstall = Plugins::dir() . "/$slug/uninstall.php";
             if (is_file($uninstall)) {
                 try {
-                    require $uninstall;
+                    // Chạy trong closure riêng: uninstall.php dùng chung phạm vi biến với hàm này thì một dòng như
+                    // `$slug = ...` sẽ làm rrmdir() bên dưới xoá nhầm thư mục (slug rỗng = xoá cả thư mục plugins).
+                    (static function (string $__file): void {
+                        require $__file;
+                    })($uninstall);
                 } catch (\Throwable $e) {
                     error_log("[LQCMS] uninstall $slug lỗi: " . $e->getMessage());
                 }
@@ -71,14 +79,6 @@ final class PluginsController
             rrmdir(Plugins::dir() . "/$slug");
             flash('success', 'Đã xoá plugin "' . $meta['name'] . '".');
         }
-        redirect('/admin/plugins');
-    }
-
-    public static function upload(): void
-    {
-        Kernel::require('manage_plugins');
-        [$slug, $err] = Package::installZip($_FILES['package'] ?? [], Plugins::dir(), [Plugins::class, 'validatePackage']);
-        $err ? flash('error', $err) : flash('success', 'Đã cài plugin "' . (Plugins::read($slug)['name'] ?? $slug) . '". Bấm Kích hoạt để sử dụng.');
         redirect('/admin/plugins');
     }
 }

@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Core\View;
 
 $route = '/admin/' . $info['route'];
@@ -6,7 +7,6 @@ $route = '/admin/' . $info['route'];
 <div class="page-head">
   <div>
     <h1>Sửa <?= e($info['singular']) ?></h1>
-    <p><?= e($term['name']) ?> · <span class="mono"><?= e($term['slug']) ?></span></p>
   </div>
 </div>
 

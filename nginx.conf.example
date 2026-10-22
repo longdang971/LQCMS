@@ -3,13 +3,29 @@
 server {
     listen 80;
     server_name example.com www.example.com;
-    root /var/www/lqcms/public;          # trỏ vào thư mục public, KHÔNG phải thư mục gốc project
+    root /var/www/lqcms;                 # thư mục gốc project (chứa index.php)
     index index.php;
 
     client_max_body_size 32m;            # khớp với upload_max_filesize / post_max_size của PHP
 
     location / {
         try_files $uri $uri/ /index.php?$args;
+    }
+
+    # BẮT BUỘC: chặn thư mục/tệp chỉ dành cho máy chủ — mã nguồn lõi, khoá mã hoá + nhật ký + gói chờ cài (storage),
+    # cấu trúc DB. Đặt TRƯỚC các location khác để tệp tĩnh trong đó (vd. storage/ai/composer.phar) cũng bị chặn.
+    location ~ ^/(app|storage|database)(/|$) {
+        deny all;
+        return 404;
+    }
+    # config.php thường đã nằm ngoài web root (thư mục cha); luật này phòng khi LQCMS không chuyển ra được.
+    location ~ ^/(config\.php|nginx\.conf\.example|[^/]+\.md)$ {
+        return 404;
+    }
+    # Tệp/thư mục ẩn (.git, .env, .DS_Store…) — đặt trước luật tệp tĩnh bên dưới, nếu không /.x/a.js vẫn tải được
+    # (nginx dùng location regex khớp ĐẦU TIÊN). Chừa .well-known cho xác minh SSL (Let's Encrypt).
+    location ~ /\.(?!well-known(/|$)) {
+        deny all;
     }
 
     # Chặn chạy PHP trong content/ (theme, plugin, uploads) — chỉ index.php được thực thi.
@@ -23,6 +39,7 @@ server {
         fastcgi_pass unix:/run/php/php8.3-fpm.sock;
     }
 
+    # Mọi tệp .php khác index.php (config.php, mã trong app/, theme, plugin) không gọi thẳng được.
     location ~ \.php$ {
         return 404;
     }
@@ -31,9 +48,5 @@ server {
         expires 30d;
         access_log off;
         try_files $uri =404;
-    }
-
-    location ~ /\. {
-        deny all;
     }
 }

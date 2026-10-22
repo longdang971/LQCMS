@@ -91,6 +91,10 @@ final class Permalink
         if (!in_array('%postname%', $m[0], true) && !in_array('%post_id%', $m[0], true)) {
             return 'Cấu trúc phải chứa %postname% hoặc %post_id% để xác định được bài viết.';
         }
+        // %author% đứng đầu: bài của tài khoản "admin" thành /admin/… và rơi vào trang quản trị.
+        if (str_starts_with($structure, '/%author%')) {
+            return 'Cấu trúc không được bắt đầu bằng %author% (tên đăng nhập như "admin" trùng đường dẫn hệ thống).';
+        }
         if (preg_match('#^/admin(/|$)#', $structure) || preg_match('#//#', $structure)) {
             return 'Cấu trúc không hợp lệ (trùng với /admin hoặc có "//").';
         }
@@ -98,7 +102,7 @@ final class Permalink
     }
 
     /** Đường dẫn gốc hệ thống dùng — không slug/tiền tố nào được trùng. */
-    public const RESERVED_ROOT = ['admin', 'assets', 'content', 'install'];
+    public const RESERVED_ROOT = ['admin', 'assets', 'content', 'install', 'page', 'tac-gia', 'ajax', 'app', 'storage', 'database', 'docs']; // page = phân trang, tac-gia = trang tác giả, ajax = endpoint AJAX; app/storage/database/docs = thư mục thật ở web root
 
     /**
      * Các "đoạn đầu URL" đã có chủ ở gốc site: đường dẫn hệ thống + tiền tố của các taxonomy có tiền tố.
@@ -113,6 +117,32 @@ final class Permalink
             }
         }
         return array_values(array_unique($taken));
+    }
+
+    /**
+     * Slug này đã có chủ ở đoạn đầu URL chưa — trang cấp gốc (/slug/), term của taxonomy không tiền tố (/slug/) và bài viết
+     * khi cấu trúc là /%postname%/ cùng nằm ở gốc site. Resolver ưu tiên trang → term → bài, nên trùng là cái sau thành 404.
+     * $kind: post | page | term (chính đối tượng đang lưu được bỏ qua: cùng loại đã có uniqueSlug riêng kiểm).
+     */
+    public static function rootSlugTaken(string $slug, string $kind, ?string $taxonomy = null): bool
+    {
+        $postsAtRoot = trim((string) option('permalink_structure', '/%postname%/'), '/') === '%postname%';
+        if ($kind === 'post' && (!$postsAtRoot || in_array($slug, self::takenRootSegments(), true))) {
+            return $postsAtRoot; // bài ở gốc mà slug là "admin", "chuyen-muc"… cũng không được
+        }
+        if ($kind !== 'page' && db()->value("SELECT 1 FROM {posts} WHERE type = 'page' AND parent_id IS NULL AND slug = ? LIMIT 1", [$slug])) {
+            return true;
+        }
+        if ($kind !== 'post' && $postsAtRoot && db()->value("SELECT 1 FROM {posts} WHERE type = 'post' AND slug = ? LIMIT 1", [$slug])) {
+            return true;
+        }
+        foreach (\LQ\Content\Taxonomies::all() as $key => $t) {
+            if ($t['base'] === '' && !($kind === 'term' && $key === $taxonomy)
+                && db()->value('SELECT 1 FROM {terms} WHERE taxonomy = ? AND parent_id IS NULL AND slug = ? LIMIT 1', [$key, $slug])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Tiền tố cho trang chuyên mục / thẻ, vd. "chuyen-muc". Để trống = không tiền tố. */

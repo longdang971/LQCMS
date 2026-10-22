@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Content\Posts;
 use LQ\Core\View;
 
@@ -26,6 +27,8 @@ $currentParent = (int) $v('parent_id', 0);
       <span data-page-prefix><?= e(rtrim($pathPrefix, '/') . '/') ?></span><input class="slug-input<?= invalid($errors, 'slug') ?>" name="slug" value="<?= e($v('slug')) ?>" placeholder="slug-trang" data-slug-target spellcheck="false" aria-label="Slug"><span>/</span>
       <?php if ($permalink): ?>
         <a class="link" href="<?= e($permalink) ?>" target="_blank" rel="noopener">Xem trang <?= icon('arrow-up-right') ?></a>
+      <?php elseif ($previewUrl ?? null): ?>
+        <a class="link" href="<?= e($previewUrl) ?>" target="_blank" rel="noopener">Xem trước <?= icon('arrow-up-right') ?></a>
       <?php endif; ?>
     </div>
     <?= field_error($errors, 'slug') ?>
@@ -61,6 +64,10 @@ $currentParent = (int) $v('parent_id', 0);
         <p class="help">Để trống để đăng ngay, chọn ngày tương lai để lên lịch.</p>
       </div>
       <div class="publish-actions">
+        <?php // ⌘⇧S / Ctrl+Shift+S: lưu nháp — bài mới/nháp thì lưu nháp, bài đã đăng/lên lịch/chờ duyệt thì giữ nguyên trạng thái (update), không gỡ bài. ?>
+        <button type="submit" name="action" value="<?= $isNew || $status === 'draft' ? 'draft' : 'update' ?>" hidden data-quick-save></button>
+        <?php // ⌘S / Ctrl+S: đăng (người không có quyền đăng thì máy chủ chuyển thành gửi duyệt; ngày tương lai thành lên lịch). ?>
+        <button type="submit" name="action" value="publish" hidden data-quick-publish></button>
         <?php if (in_array($status, ['published', 'scheduled'], true)): ?>
           <button class="btn btn-secondary" type="submit" name="action" value="draft">Về nháp</button>
           <button class="btn btn-accent" type="submit" name="action" value="update">Cập nhật</button>
@@ -84,7 +91,7 @@ $currentParent = (int) $v('parent_id', 0);
           <select id="parent_id" name="parent_id" class="input<?= invalid($errors, 'parent_id') ?>" data-page-parent>
             <option value="0" data-path="">— Không có (trang gốc) —</option>
             <?php foreach ($parents as $pg): ?>
-              <option value="<?= (int) $pg['id'] ?>" data-path="<?= e(\LQ\Content\Pages::path($pg)) ?>"<?= selected($pg['id'], $currentParent) ?>><?= str_repeat('— ', $pg['depth']) . e($pg['title'] ?: '(Không tiêu đề)') ?></option>
+              <option value="<?= (int) $pg['id'] ?>" data-path="<?= e(\LQ\Content\Pages::path($pg)) ?>"<?= selected($pg['id'], $currentParent) ?>><?= str_repeat('— ', $pg['depth']) . e($pg['title'] ?: '(Không tiêu đề)') ?><?= $pg['status'] === 'trash' ? ' (trong thùng rác)' : '' ?></option>
             <?php endforeach; ?>
           </select>
           <?= field_error($errors, 'parent_id') ?>
@@ -96,6 +103,10 @@ $currentParent = (int) $v('parent_id', 0);
             <?php foreach ($templates as $t): ?>
               <option value="<?= e($t['key']) ?>"<?= selected($t['key'], $currentTemplate) ?>><?= e($t['label']) ?></option>
             <?php endforeach; ?>
+            <?php // Mẫu đang gắn mà theme hiện tại không còn khai báo: vẫn giữ làm lựa chọn, không thì lưu trang sẽ âm thầm về "Mặc định". ?>
+            <?php if ($currentTemplate !== '' && !isset($templates[$currentTemplate])): ?>
+              <option value="<?= e($currentTemplate) ?>" selected><?= e($currentTemplate) ?> (theme không còn)</option>
+            <?php endif; ?>
           </select>
           <?php foreach ($templates as $t): ?>
             <p class="help" data-template-help="<?= e($t['key']) ?>"<?= $t['key'] !== $currentTemplate ? ' hidden' : '' ?>>
@@ -114,6 +125,7 @@ $currentParent = (int) $v('parent_id', 0);
       </div>
     </section>
 
+    <?= View::capture('admin/posts/_ai', ['post' => $post]) ?>
     <?= View::capture('admin/posts/_featured', ['post' => $post]) ?>
 
     <?php foreach ($boxes['side'] as $box): ?>

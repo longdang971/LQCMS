@@ -16,7 +16,7 @@ final class AuthController
         }
         View::render('admin/auth/login', [
             'title' => 'Đăng nhập',
-            'redirect' => self::safeRedirect((string) ($_GET['redirect'] ?? '')),
+            'redirect' => self::safeRedirect(is_string($_GET['redirect'] ?? null) ? $_GET['redirect'] : ''),
             'canRegister' => (bool) option('users_can_register'),
         ], 'admin/auth-layout');
     }
@@ -24,7 +24,8 @@ final class AuthController
     public static function login(): void
     {
         $login = input_str('login');
-        $error = Auth::attempt($login, (string) ($_POST['password'] ?? ''), !empty($_POST['remember']));
+        $password = $_POST['password'] ?? '';
+        $error = Auth::attempt($login, is_string($password) ? $password : '', !empty($_POST['remember']));
         $to = self::safeRedirect(input_str('redirect')) ?: '/admin';
         if ($error) {
             Session::keepOld(['login' => $login]);
@@ -60,7 +61,7 @@ final class AuthController
         }
         [$errors, $id] = Auth::register($_POST);
         if ($errors) {
-            Session::keepOld($_POST);
+            Session::keepOld(array_filter($_POST, 'is_string')); // form chỉ có ô chữ; ô gửi dạng mảng làm e(old()) báo "Array to string"
             $_SESSION['_errors'] = $errors;
             flash('error', 'Vui lòng kiểm tra lại thông tin đăng ký.');
             redirect('/admin/register');

@@ -9,19 +9,52 @@ namespace LQ\Core;
  */
 final class Migrations
 {
-    public const LATEST = 5;
+    public const LATEST = 6;
 
     public static function run(): void
     {
-        $current = (int) option('db_version', 1);
-        if ($current >= self::LATEST) {
+        if ((int) option('db_version', 1) >= self::LATEST) {
             return;
         }
-        for ($v = $current + 1; $v <= self::LATEST; $v++) {
-            $method = "v$v";
-            self::$method(db());
-            update_option('db_version', $v);
+        // Ngay sau khi cập nhật mã, nhiều request cùng lúc thấy db_version cũ: chỉ một request được nâng cấp,
+        // các request khác chờ nó xong (tối đa 10 giây — phải dưới max_execution_time 30 giây mặc định, macOS tính cả lúc chờ)
+        // — chạy song song thì bước ALTER/CREATE trùng nhau gây lỗi 500.
+        $lock = (string) db()->value("SELECT CONCAT('lq_migrate_', MD5(CONCAT(DATABASE(), '.', ?)))", [db()->prefix]);
+        if ((int) db()->value('SELECT GET_LOCK(?, 10)', [$lock]) !== 1) {
+            self::unavailable('Website đang nâng cấp cơ sở dữ liệu, vui lòng tải lại sau ít giây.');
         }
+        try {
+            // Đọc lại từ DB (không lấy cache của request này): request giữ khoá trước có thể đã nâng cấp xong.
+            $current = (int) json_decode((string) db()->value("SELECT value FROM {options} WHERE name = 'db_version'"), true) ?: 1;
+            for ($v = $current + 1; $v <= self::LATEST; $v++) {
+                $method = "v$v";
+                try {
+                    self::$method(db());
+                } catch (\Throwable $e) {
+                    // Bước lỗi: ghi nhật ký và báo bảo trì (503) thay vì trang lỗi 500 trần; db_version giữ ở bước trước
+                    // nên lần truy cập sau chạy lại đúng bước này.
+                    ErrorLog::add('error', "Nâng cấp CSDL bước v$v lỗi: " . $e->getMessage(), $e->getFile(), $e->getLine());
+                    db()->value('SELECT RELEASE_LOCK(?)', [$lock]); // exit trong unavailable() bỏ qua finally
+                    self::unavailable('Nâng cấp cơ sở dữ liệu gặp lỗi. Quản trị viên xem chi tiết trong storage/logs/errors.php.');
+                }
+                update_option('db_version', $v);
+            }
+        } finally {
+            db()->value('SELECT RELEASE_LOCK(?)', [$lock]);
+        }
+    }
+
+    /** Trang bảo trì 503 (không dùng view/theme — chúng có thể cần đúng bảng đang nâng cấp). */
+    private static function unavailable(string $message): never
+    {
+        if (PHP_SAPI !== 'cli' && !headers_sent()) {
+            http_response_code(503);
+            header('Retry-After: 10');
+            header('Content-Type: text/html; charset=utf-8');
+        }
+        echo '<!doctype html><meta charset="utf-8"><title>Đang bảo trì</title>'
+            . '<p style="font:16px/1.6 system-ui,sans-serif;max-width:520px;margin:15vh auto;padding:0 16px">' . htmlspecialchars($message) . '</p>';
+        exit;
     }
 
     /** v2: bảng post_meta cho field tuỳ biến. */
@@ -92,5 +125,17 @@ final class Migrations
             CONSTRAINT {$db->prefix}fk_rev_post FOREIGN KEY (post_id) REFERENCES {posts} (id) ON DELETE CASCADE,
             CONSTRAINT {$db->prefix}fk_rev_author FOREIGN KEY (author_id) REFERENCES {users} (id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"));
+    }
+
+    /** v6: đếm lượt gọi theo IP để giới hạn tần suất action AJAX công khai. */
+    private static function v6(Database $db): void
+    {
+        $db->pdo->exec($db->sql('CREATE TABLE IF NOT EXISTS {rate_limits} (
+            bucket VARCHAR(191) NOT NULL,
+            window_start INT UNSIGNED NOT NULL,
+            hits INT UNSIGNED NOT NULL DEFAULT 0,
+            PRIMARY KEY (bucket, window_start),
+            KEY idx_window (window_start)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'));
     }
 }

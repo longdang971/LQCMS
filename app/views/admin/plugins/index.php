@@ -1,10 +1,10 @@
 <?php
+defined('LQ_ROOT') || exit;
 $tabs = ['' => 'Tất cả', 'active' => 'Đang bật', 'inactive' => 'Đang tắt'];
 ?>
 <div class="page-head">
   <div>
     <h1>Plugin</h1>
-    <p>Mở rộng chức năng bằng hooks · thư mục <code>public/content/plugins</code></p>
   </div>
   <form method="post" action="/admin/plugins/upload" enctype="multipart/form-data" data-upload-form>
     <?= csrf_field() ?>
@@ -30,7 +30,11 @@ $tabs = ['' => 'Tất cả', 'active' => 'Đang bật', 'inactive' => 'Đang t�
     <?php foreach ($plugins as $p): ?>
       <article class="plugin-item<?= $p['active'] ? ' is-active' : '' ?>">
         <div class="plugin-top">
-          <span class="plugin-icon"><?= icon('puzzle') ?></span>
+          <?php if ($p['icon_url']): ?>
+            <span class="plugin-icon has-image"><img src="<?= e($p['icon_url']) ?>" alt=""></span>
+          <?php else: ?>
+            <span class="plugin-icon"><?= icon($p['icon'] ?: 'puzzle') ?></span>
+          <?php endif; ?>
           <div class="plugin-body">
             <div class="plugin-title">
               <h3><?= e($p['name']) ?></h3>
@@ -48,9 +52,11 @@ $tabs = ['' => 'Tất cả', 'active' => 'Đang bật', 'inactive' => 'Đang t�
         </div>
         <p class="plugin-desc"><?= e($p['description'] ?: 'Không có mô tả.') ?></p>
         <div class="plugin-actions">
-          <code><?= e($p['slug']) ?></code>
           <?php if ($p['requires_php']): ?><span class="plugin-meta">PHP ≥ <?= e($p['requires_php']) ?></span><?php endif; ?>
           <span class="spacer"></span>
+          <?php if (\LQ\AI\AI::enabled()): ?>
+            <button type="button" class="icon-btn sm" data-ai-plugin-scan data-slug="<?= e($p['slug']) ?>" data-name="<?= e($p['name']) ?>" data-tip="Kiểm tra bằng AI: lỗ hổng bảo mật, mã độc, lỗi logic" aria-label="Kiểm tra bằng AI"><?= icon('scan-search') ?></button>
+          <?php endif; ?>
           <?php if ($p['active']): ?>
             <form method="post" action="/admin/plugins/deactivate">
               <?= csrf_field() ?>

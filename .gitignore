@@ -1,4 +1,5 @@
 /config.php
-/public/content/uploads/*
-!/public/content/uploads/.gitkeep
+/content/uploads/*
+!/content/uploads/.gitkeep
 .DS_Store
+/storage/

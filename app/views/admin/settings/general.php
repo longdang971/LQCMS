@@ -1,10 +1,17 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Admin\SettingsController;
 use LQ\Core\Auth;
 
 $o = fn (string $k, mixed $d = '') => old($k, option($k, $d));
-$dateFormat = (string) $o('date_format', 'd/m/Y');
-$timeFormat = (string) $o('time_format', 'H:i');
+// Sau khi lưu lỗi, old('date_format') là chữ "custom" → lấy định dạng người dùng đã gõ ở ô tuỳ chỉnh,
+// không thì ô đó hiện "custom" và lần lưu sau ghi luôn "custom" làm định dạng ngày.
+$fmt = function (string $k, string $d) use ($o): string {
+    $v = (string) $o($k, $d);
+    return $v === 'custom' ? trim((string) old($k . '_custom', $d)) : $v;
+};
+$dateFormat = $fmt('date_format', 'd/m/Y');
+$timeFormat = $fmt('time_format', 'H:i');
 $nowLocal = new DateTimeImmutable('now', site_timezone());
 $tzGroups = [];
 foreach ($timezones as $tz) {
@@ -14,7 +21,6 @@ foreach ($timezones as $tz) {
 <div class="page-head">
   <div>
     <h1>Cài đặt chung</h1>
-    <p>Thông tin cơ bản, thành viên, ngày giờ và nội dung mặc định.</p>
   </div>
   <div class="page-actions">
     <button class="btn btn-primary" type="submit" form="settings-form">Lưu thay đổi</button>
@@ -137,16 +143,32 @@ foreach ($timezones as $tz) {
     <div class="settings-fields">
       <div class="grid-2">
         <div class="field">
-          <label for="posts_per_page">Số bài mỗi trang</label>
-          <input id="posts_per_page" name="posts_per_page" type="number" min="1" max="100" class="input<?= invalid($errors, 'posts_per_page') ?>" value="<?= (int) $o('posts_per_page', 10) ?>">
-          <?= field_error($errors, 'posts_per_page') ?>
+          <label for="page_on_front">Trang chủ hiển thị</label>
+          <select id="page_on_front" name="page_on_front" class="input<?= invalid($errors, 'page_on_front') ?>">
+            <option value="0">Bài viết mới nhất</option>
+            <?php foreach ($pages as $pg): ?>
+              <option value="<?= (int) $pg['id'] ?>"<?= selected($pg['id'], $o('page_on_front')) ?>><?= str_repeat('— ', $pg['depth']) . e($pg['title'] ?: '(Không có tiêu đề)') ?></option>
+            <?php endforeach; ?>
+          </select>
+          <p class="help">Chọn một trang tĩnh để làm trang chủ thay cho danh sách bài.</p>
+          <?= field_error($errors, 'page_on_front') ?>
         </div>
         <div class="field">
-          <label for="upload_max_mb">Dung lượng ảnh tối đa (MB)</label>
-          <input id="upload_max_mb" name="upload_max_mb" type="number" min="1" max="512" class="input<?= invalid($errors, 'upload_max_mb') ?>" value="<?= (int) $o('upload_max_mb', 8) ?>">
-          <p class="help">Máy chủ đang giới hạn <?= e(ini_get('upload_max_filesize')) ?> mỗi tệp.</p>
-          <?= field_error($errors, 'upload_max_mb') ?>
+          <label for="page_for_posts">Trang danh sách bài viết</label>
+          <select id="page_for_posts" name="page_for_posts" class="input<?= invalid($errors, 'page_for_posts') ?>">
+            <option value="0">Không dùng</option>
+            <?php foreach ($pages as $pg): ?>
+              <option value="<?= (int) $pg['id'] ?>"<?= selected($pg['id'], $o('page_for_posts')) ?>><?= str_repeat('— ', $pg['depth']) . e($pg['title'] ?: '(Không có tiêu đề)') ?></option>
+            <?php endforeach; ?>
+          </select>
+          <p class="help">Khi trang chủ là trang tĩnh, bài mới nhất sẽ hiện ở trang này (vd. /blog/).</p>
+          <?= field_error($errors, 'page_for_posts') ?>
         </div>
+      </div>
+      <div class="field">
+        <label for="posts_per_page">Số bài mỗi trang</label>
+        <input id="posts_per_page" name="posts_per_page" type="number" min="1" max="100" class="input<?= invalid($errors, 'posts_per_page') ?>" value="<?= (int) $o('posts_per_page', 10) ?>" style="max-width: 160px">
+        <?= field_error($errors, 'posts_per_page') ?>
       </div>
       <div class="field">
         <label for="revisions_keep">Số phiên bản giữ lại cho mỗi bài</label>

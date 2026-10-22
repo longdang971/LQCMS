@@ -26,12 +26,15 @@ final class Options
 
     public static function set(string $name, mixed $value, bool $autoload = true): void
     {
+        // INVALID_UTF8_SUBSTITUTE: chuỗi UTF-8 hỏng làm json_encode trả false → lưu chuỗi rỗng, mất cả giá trị (vd. tên website).
+        $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         db()->query(
             'INSERT INTO {options} (name, value, autoload) VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE value = VALUES(value), autoload = VALUES(autoload)',
-            [$name, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), (int) $autoload]
+            [$name, $json, (int) $autoload]
         );
-        self::$cache[$name] = $value;
+        // Cache đúng giá trị request sau sẽ đọc lại (object → mảng…), không phải giá trị gốc truyền vào.
+        self::$cache[$name] = is_string($json) ? json_decode($json, true) : null;
     }
 
     public static function delete(string $name): void

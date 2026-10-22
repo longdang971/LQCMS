@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Admin\Kernel;
 use LQ\Core\Auth;
 
@@ -6,26 +7,16 @@ $user = current_user();
 $path = request_path();
 $menu = Kernel::menu();
 
-// Breadcrumb: mục menu cha đang mở › tiêu đề trang.
-$crumbs = [];
-foreach ($menu as $item) {
-    if (!isset($item['section']) && Kernel::isActive($item, $path)) {
-        if ($item['label'] !== ($title ?? '')) {
-            $crumbs[] = ['label' => $item['label'], 'url' => $item['url']];
-        }
-        break;
-    }
-}
-
-// Dữ liệu cho thanh lệnh ⌘K: mọi trang trong menu (đã lọc theo quyền).
+// Dữ liệu cho thanh lệnh (⌘K / Ctrl K): mọi trang trong menu (đã lọc theo quyền).
 $navItems = [];
+$hint = fn (string $url, array $it = []) => \LQ\Admin\Kernel::PAGE_HINTS[$url] ?? ($it['keywords'] ?? '');
 foreach ($menu as $item) {
     if (isset($item['section'])) {
         continue;
     }
-    $navItems[] = ['label' => $item['label'], 'url' => $item['url'], 'icon' => $item['icon'] ?? 'circle'];
+    $navItems[] = ['label' => $item['label'], 'url' => $item['url'], 'icon' => $item['icon'] ?? 'circle', 'keywords' => $hint($item['url'], $item)];
     foreach ($item['children'] ?? [] as $c) {
-        $navItems[] = ['label' => $c['label'], 'url' => $c['url'], 'icon' => $item['icon'] ?? 'circle', 'parent' => $item['label']];
+        $navItems[] = ['label' => $c['label'], 'url' => $c['url'], 'icon' => $item['icon'] ?? 'circle', 'parent' => $item['label'], 'keywords' => $hint($c['url'], $c)];
     }
 }
 ?>
@@ -47,7 +38,7 @@ foreach ($menu as $item) {
     </a>
 
     <button class="sidebar-search" type="button" data-cmdk-open>
-      <?= icon('search') ?><span>Tìm kiếm…</span><kbd data-kbd-mod>⌘K</kbd>
+      <?= icon('search') ?><span>Tìm kiếm…</span><?= kbd('K') ?>
     </button>
 
     <nav class="nav">
@@ -101,24 +92,35 @@ foreach ($menu as $item) {
 
   <div class="main">
     <header class="topbar">
-      <button class="icon-btn only-mobile" type="button" data-sidebar-open aria-label="Mở menu"><?= icon('panel-left') ?></button>
-      <nav class="crumbs" aria-label="Breadcrumb">
-        <?php foreach ($crumbs as $c): ?>
-          <a href="<?= e($c['url']) ?>"><?= e($c['label']) ?></a>
-          <?= icon('chevron-right', 'sep') ?>
-        <?php endforeach; ?>
-        <span class="current"><?= e($title ?? '') ?></span>
-      </nav>
+      <button class="topbar-btn" type="button" data-sidebar-open aria-label="Mở menu"><?= icon('menu') ?></button>
+      <a class="topbar-brand" href="/admin">
+        <span class="brand-mark">LQ</span>
+        <span class="topbar-titles">
+          <strong><?= e(option('site_title', 'LQCMS')) ?></strong>
+          <small><?= e($title ?? 'Quản trị') ?></small>
+        </span>
+      </a>
       <div class="topbar-actions">
-        <button class="icon-btn only-mobile" type="button" data-cmdk-open aria-label="Tìm kiếm"><?= icon('search') ?></button>
-        <button class="icon-btn" type="button" data-theme-toggle title="Chế độ sáng / tối"><?= icon('moon', 'i-moon') ?><?= icon('sun', 'i-sun') ?></button>
-        <a class="icon-btn" href="/" target="_blank" rel="noopener" title="Xem trang web"><?= icon('square-arrow-out-up-right') ?></a>
+        <button class="topbar-btn" type="button" data-cmdk-open aria-label="Tìm kiếm"><?= icon('search') ?></button>
       </div>
     </header>
 
     <main class="content">
+      <?php if (LQ_CONFIG !== LQ_CONFIG_OUTSIDE && can('manage_options')): ?>
+        <div class="notice notice-warning config-notice"><?= icon('shield-alert') ?><div>
+          <strong>config.php đang nằm trong thư mục web.</strong> LQCMS không ghi được thư mục cha để tự chuyển ra ngoài
+          (thiếu quyền ghi, hoặc panel hosting giới hạn open_basedir). Chuyển tay để mật khẩu database không bao giờ tải được qua web:
+          <code>mv <?= e(LQ_CONFIG) ?> <?= e(LQ_CONFIG_OUTSIDE) ?></code>
+        </div></div>
+      <?php endif; ?>
       <?= $content ?>
     </main>
+
+    <footer class="admin-footer">
+      <div class="admin-footer-brand">
+        <span><strong>Powered by LQCMS <?= e(LQ_VERSION) ?></strong></span>
+      </div>
+    </footer>
   </div>
 </div>
 
@@ -141,8 +143,8 @@ foreach ($menu as $item) {
 <div class="tooltip" data-tooltip role="tooltip" hidden></div>
 
 <script>
-  window.LQ_NAV = <?= json_encode($navItems, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
-  window.LQ_CAN = <?= json_encode(['edit_posts' => can('edit_posts'), 'manage_terms' => can('manage_terms')]) ?>;
+  window.LQ_NAV = <?= json_encode($navItems, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
+  window.LQ_CAN = <?= json_encode(array_combine($caps = ['edit_posts', 'edit_pages', 'manage_terms', 'upload_files', 'manage_options', 'manage_plugins', 'manage_themes', 'edit_themes'], array_map('can', $caps))) ?>;
 </script>
 <?php require __DIR__ . '/partials/scripts.php'; ?>
 <?php do_action('admin_footer'); ?>

@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace LQ\Core;
 
 /**
- * Theme nằm ở public/content/themes/<slug>/ và cần:
+ * Theme nằm ở content/themes/<slug>/ và cần:
  *   theme.json   {"name","description","version","author","screenshot"}
  *   index.php    template mặc định
  *   functions.php (tuỳ chọn) — nạp mỗi request khi theme đang kích hoạt, giống WordPress.
@@ -65,8 +65,14 @@ final class Themes
             'author' => (string) ($m['author'] ?? ''),
             'author_url' => (string) ($m['author_url'] ?? ''),
             'screenshot' => $shot,
-            'tags' => array_values(array_filter((array) ($m['tags'] ?? []), 'is_string')),
         ];
+    }
+
+    /** Tên + phiên bản của theme đã giải nén (chưa cài) — cho trang kiểm tra trước khi cài. */
+    public static function describePackage(string $dir): array
+    {
+        $m = json_decode((string) @file_get_contents("$dir/theme.json"), true);
+        return is_array($m) ? ['name' => (string) ($m['name'] ?? ''), 'version' => (string) ($m['version'] ?? '')] : [];
     }
 
     public static function validatePackage(string $dir): ?string
@@ -86,22 +92,9 @@ final class Themes
         }
     }
 
-    /** Frontend chưa làm: tạm giao toàn bộ request cho index.php của theme. */
+    /** Frontend: định tuyến URL, chọn template theo thứ bậc rồi nạp tệp của theme (xem LQ\Front\Front). */
     public static function renderFront(string $path): void
     {
-        $theme = self::active();
-        $file = self::dir() . "/$theme/index.php";
-        if (!is_file($file)) {
-            http_response_code(500);
-            echo 'Theme đang kích hoạt không tồn tại. Vào /admin/themes để chọn theme khác.';
-            return;
-        }
-        $lq = [
-            'path' => $path,
-            'site_title' => option('site_title', 'LQCMS'),
-            'tagline' => option('tagline', ''),
-            'theme_url' => "/content/themes/$theme",
-        ];
-        require $file;
+        \LQ\Front\Front::run($path);
     }
 }

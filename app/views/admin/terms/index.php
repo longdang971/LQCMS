@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Core\View;
 
 $route = '/admin/' . $info['route'];
@@ -7,7 +8,6 @@ $term = null;
 <div class="page-head">
   <div>
     <h1><?= e($info['label']) ?></h1>
-    <p><?= count($terms) ?> <?= e($info['singular']) ?><?= $q !== '' ? ' khớp với "' . e($q) . '"' : '' ?></p>
   </div>
 </div>
 
@@ -44,7 +44,7 @@ $term = null;
               <th class="hide-sm">Slug</th>
               <th class="hide-md">Mô tả</th>
               <th class="num">Số bài</th>
-              <th class="col-actions"></th>
+              <th class="col-actions">Hành động</th>
             </tr>
           </thead>
           <tbody>
@@ -64,9 +64,10 @@ $term = null;
                 <div class="row-actions">
                   <a class="icon-btn sm" href="<?= e("$route/$id/edit") ?>" title="Sửa"><?= icon('pencil') ?></a>
                   <?php if (!$isDefault): ?>
+                    <?php // Tên term (tác giả tạo được thẻ) chỉ đặt ở data-confirm-text: data-confirm được SweetAlert vẽ như HTML. ?>
                     <form method="post" action="<?= e("$route/$id/delete") ?>"
-                          data-confirm="Xoá <?= e($info['singular']) ?> &quot;<?= e($t['name']) ?>&quot;?"
-                          data-confirm-text="<?= $tax === 'category' ? 'Bài viết chỉ thuộc chuyên mục này sẽ được chuyển về chuyên mục mặc định.' : 'Mục này sẽ được gỡ khỏi mọi bài viết.' ?>"
+                          data-confirm="Xoá <?= e($info['singular']) ?> này?"
+                          data-confirm-text="&quot;<?= e($t['name']) ?>&quot; — <?= $tax === 'category' ? 'bài viết chỉ thuộc chuyên mục này sẽ được chuyển về chuyên mục mặc định.' : 'mục này sẽ được gỡ khỏi mọi bài viết.' ?>"
                           data-confirm-danger>
                       <?= csrf_field() ?>
                       <button class="icon-btn sm danger" type="submit" title="Xoá"><?= icon('trash-2') ?></button>

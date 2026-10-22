@@ -1,3 +1,4 @@
+<?php defined('LQ_ROOT') || exit; ?>
 <section class="tile">
   <div class="tile-title"><div><h3>Bản nháp nhanh</h3><p>Ghi lại ý tưởng, viết tiếp sau.</p></div></div>
   <form method="post" action="/admin/quick-draft" class="quick-draft">

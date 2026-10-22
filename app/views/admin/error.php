@@ -1,3 +1,4 @@
+<?php defined('LQ_ROOT') || exit; ?>
 <div class="empty big">
   <?= icon($code === 403 ? 'shield-x' : 'map-pin-off') ?>
   <h2><?= (int) $code ?></h2>

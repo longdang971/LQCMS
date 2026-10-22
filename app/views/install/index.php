@@ -1,3 +1,4 @@
+<?php defined('LQ_ROOT') || exit; ?>
 <div class="auth-card is-wide">
   <h1>Cài đặt LQCMS</h1>
   <p class="muted">Chuẩn bị sẵn thông tin database MariaDB/MySQL, việc cài đặt chỉ mất khoảng một phút.</p>

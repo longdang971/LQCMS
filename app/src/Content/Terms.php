@@ -27,8 +27,9 @@ final class Terms
         $where = 't.taxonomy = ?';
         if ($search !== '') {
             $where .= ' AND (t.name LIKE ? OR t.slug LIKE ?)';
-            $params[] = "%$search%";
-            $params[] = "%$search%";
+            // Thoát % và _ để tìm đúng chữ người dùng gõ (không thành ký tự đại diện của LIKE).
+            $params[] = '%' . addcslashes($search, '%_\\') . '%';
+            $params[] = '%' . addcslashes($search, '%_\\') . '%';
         }
         return db()->all(
             "SELECT t.*, COUNT(p.id) AS post_count
@@ -84,6 +85,11 @@ final class Terms
     /** Đường dẫn slug đầy đủ của chuyên mục, vd. "tin-tuc/cong-nghe" (dùng cho %category%). */
     public static function path(int $id): string
     {
+        static $cache = [];
+        if (isset($cache[$id])) {
+            return $cache[$id];
+        }
+        $start = $id;
         $parts = [];
         $seen = [];
         while ($id && !isset($seen[$id]) && ($t = self::find($id))) {
@@ -91,15 +97,32 @@ final class Terms
             array_unshift($parts, $t['slug']);
             $id = (int) $t['parent_id'];
         }
-        return implode('/', $parts);
+        return $cache[$start] = implode('/', $parts);
     }
 
-    public static function uniqueSlug(string $taxonomy, string $slug, int $exceptId = 0): string
+    /** URL công khai của trang lưu trữ term: /tien-to/slug/ (chuyên mục con: /tien-to/cha/con/). */
+    public static function url(array $term): string
     {
-        return Slug::unique($slug, fn ($s) => (bool) db()->value(
+        $info = Taxonomies::get((string) $term['taxonomy']);
+        $path = ($info['hierarchical'] ?? false) ? self::path((int) $term['id']) : (string) $term['slug'];
+        return site_url('/' . trim(($info['base'] ?? '') . '/' . $path, '/') . '/');
+    }
+
+    /** $root: term cấp gốc của taxonomy không tiền tố — slug còn phải tránh trang/bài/term khác ở gốc site. */
+    public static function uniqueSlug(string $taxonomy, string $slug, int $exceptId = 0, bool $root = false): string
+    {
+        // Giữ nguyên slug đang dùng thì không kiểm chéo (trùng từ trước mà tự đổi khi lưu lại sẽ làm hỏng URL đang chạy).
+        // Term con vừa chuyển lên cấp gốc thì URL đằng nào cũng đổi: không miễn (giống Posts::uniqueSlug).
+        $current = $exceptId ? (string) db()->value('SELECT slug FROM {terms} WHERE id = ? AND parent_id IS NULL', [$exceptId]) : '';
+        $exists = fn ($s) => (bool) db()->value(
             'SELECT 1 FROM {terms} WHERE taxonomy = ? AND slug = ? AND id <> ?',
             [$taxonomy, $s, $exceptId]
-        ));
+        ) || ($root && $s !== $current && \LQ\Core\Permalink::rootSlugTaken($s, 'term', $taxonomy));
+        // Slug sát giới hạn cột (191) mà bị trùng: cắt bớt để chừa chỗ cho hậu tố -2, -3…
+        if (strlen($slug) > 180 && $exists($slug)) {
+            $slug = rtrim(substr($slug, 0, 180), '-');
+        }
+        return Slug::unique($slug, $exists);
     }
 
     /**
@@ -130,6 +153,11 @@ final class Terms
                 $errors['slug'] = "Slug \"$candidate\" trùng đường dẫn hệ thống hoặc tiền tố khác (vì {$info['singular']} đang không có tiền tố). Hãy chọn slug khác.";
             }
         }
+        // Cấu trúc bài /%category%/…: chuyên mục cấp gốc thành đoạn đầu URL của bài, slug "admin", "assets"… làm bài rơi vào đường hệ thống.
+        if (!$errors && $taxonomy === 'category' && $parent === 0 && str_starts_with((string) option('permalink_structure', ''), '/%category%')
+            && in_array(Slug::make($slugIn !== '' ? $slugIn : $name), \LQ\Core\Permalink::RESERVED_ROOT, true)) {
+            $errors['slug'] = 'Slug này trùng đường dẫn hệ thống (cấu trúc đường dẫn bài bắt đầu bằng chuyên mục). Hãy chọn slug khác.';
+        }
         if (!self::info($taxonomy)['hierarchical']) {
             $parent = 0;
         } elseif ($parent) {
@@ -145,7 +173,7 @@ final class Terms
 
         $data = [
             'name' => $name,
-            'slug' => self::uniqueSlug($taxonomy, $slug, $id),
+            'slug' => self::uniqueSlug($taxonomy, $slug, $id, $info['base'] === '' && !$parent),
             'parent_id' => $parent ?: null,
             'description' => trim((string) ($in['description'] ?? '')),
         ];
@@ -188,8 +216,11 @@ final class Terms
         return null;
     }
 
-    /** Tìm hoặc tạo term theo tên (taxonomy không phân cấp, vd. thẻ, diễn viên); trả về danh sách ID. */
-    public static function ensureTerms(string $taxonomy, array $names): array
+    /**
+     * Tìm hoặc tạo term theo tên (taxonomy không phân cấp, vd. thẻ, diễn viên); trả về danh sách ID.
+     * $create = false: chỉ lấy term đã có, tên chưa có thì bỏ qua (người không có quyền quản lý taxonomy đó).
+     */
+    public static function ensureTerms(string $taxonomy, array $names, bool $create = true): array
     {
         $ids = [];
         foreach ($names as $name) {
@@ -197,8 +228,17 @@ final class Terms
             if ($name === '' || mb_strlen($name) > 191) {
                 continue;
             }
-            $id = db()->value('SELECT id FROM {terms} WHERE taxonomy = ? AND name = ?', [$taxonomy, $name]);
-            if (!$id) {
+            // Collation utf8mb4_unicode_ci bỏ qua dấu ("mã" = "ma" = "mà") nên lọc lại trong PHP:
+            // chỉ coi là trùng khi giống hệt, không phân biệt hoa thường.
+            $id = null;
+            $want = self::nameKey($name);
+            foreach (db()->all('SELECT id, name FROM {terms} WHERE taxonomy = ? AND name = ? ORDER BY id', [$taxonomy, $name]) as $r) {
+                if (self::nameKey((string) $r['name']) === $want) {
+                    $id = (int) $r['id'];
+                    break;
+                }
+            }
+            if (!$id && $create) {
                 [, $id] = self::save($taxonomy, ['name' => $name]);
             }
             if ($id) {
@@ -208,9 +248,13 @@ final class Terms
         return array_values(array_unique($ids));
     }
 
-    public static function ensureTags(array $names): array
+    /** Khoá so sánh tên term: gộp dạng NFC (chuỗi dán từ macOS hay ở dạng NFD) + chữ thường, giữ nguyên dấu. */
+    private static function nameKey(string $name): string
     {
-        return self::ensureTerms('tag', $names);
+        if (class_exists(\Normalizer::class)) {
+            $name = \Normalizer::normalize($name, \Normalizer::FORM_C) ?: $name;
+        }
+        return mb_strtolower($name, 'UTF-8');
     }
 
     /** @return array<int, array> term của một bài theo taxonomy */

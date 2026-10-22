@@ -41,7 +41,14 @@ final class MediaController
     {
         Kernel::require('upload_files');
         $m = Media::find((int) $p['id']) ?? json_response(['ok' => false, 'message' => 'Không tìm thấy ảnh.'], 404);
-        json_response(['ok' => true, 'item' => $m + ['usage' => Media::usage($m), 'can_edit' => Media::canEdit($m)]]);
+        // Bài chưa đăng mà người xem không sửa được (nháp của người khác): vẫn đếm (để cảnh báo khi xoá ảnh) nhưng không lộ tiêu đề.
+        $usage = array_map(function (array $u): array {
+            $editable = \LQ\Content\Posts::canEdit($u);
+            $hidden = !$editable && $u['status'] !== 'published';
+            return ['id' => $hidden ? 0 : (int) $u['id'], 'title' => $hidden ? '' : $u['title'], 'type' => $u['type'], 'status' => $hidden ? '' : $u['status'],
+                'editable' => $editable, 'hidden' => $hidden];
+        }, Media::usage($m));
+        json_response(['ok' => true, 'item' => $m + ['usage' => $usage, 'can_edit' => Media::canEdit($m)]]);
     }
 
     /** Tải lên một ảnh (JS gửi từng ảnh để có tiến trình riêng). */
@@ -50,7 +57,7 @@ final class MediaController
         if (!can('upload_files')) {
             json_response(['ok' => false, 'message' => 'Bạn không có quyền tải tệp lên.'], 403);
         }
-        [$m, $err] = Media::upload($_FILES['file'] ?? []);
+        [$m, $err] = Media::upload($_FILES['file'] ?? [], (string) ($_POST['name'] ?? ''));
         $err ? json_response(['ok' => false, 'message' => $err], 422) : json_response(['ok' => true, 'item' => $m]);
     }
 
@@ -81,15 +88,43 @@ final class MediaController
         Kernel::require('upload_files');
         $ids = array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])));
         $done = $skipped = 0;
+        $deletedIds = [];
         foreach ($ids as $id) {
             $m = Media::find($id);
             if ($m && Media::canEdit($m) && Media::delete($id)) {
                 $done++;
+                $deletedIds[] = $id;
             } else {
                 $skipped++;
             }
         }
-        json_response(['ok' => true, 'deleted' => $done, 'skipped' => $skipped]);
+        // ids: ảnh đã xoá thật — JS chỉ gỡ các ô này khỏi lưới (ảnh bị bỏ qua vì không có quyền vẫn còn).
+        json_response(['ok' => true, 'deleted' => $done, 'skipped' => $skipped, 'ids' => $deletedIds]);
+    }
+
+    /** Dọn dẹp, bước 1: danh sách ảnh không dùng đến để người dùng xem trước. */
+    public static function unused(): void
+    {
+        Kernel::require('manage_options');
+        $items = Media::unused();
+        json_response(['ok' => true, 'items' => $items, 'total' => array_sum(array_column($items, 'size'))]);
+    }
+
+    /** Dọn dẹp, bước 2: xoá các ảnh đã xem trước — kiểm tra lại từng ảnh vẫn chưa được dùng (có thể vừa được chèn vào bài). */
+    public static function cleanup(): void
+    {
+        Kernel::require('manage_options');
+        $want = array_flip(array_filter(array_map('intval', (array) ($_POST['ids'] ?? []))));
+        $done = 0;
+        $deletedIds = [];
+        foreach (Media::unused() as $m) {
+            if (isset($want[$m['id']]) && Media::delete($m['id'])) {
+                $done++;
+                $deletedIds[] = $m['id'];
+            }
+        }
+        // ids: ảnh đã xoá thật — ảnh vừa được dùng trở lại thì giữ, JS không được gỡ khỏi lưới.
+        json_response(['ok' => true, 'deleted' => $done, 'skipped' => count($want) - $done, 'ids' => $deletedIds]);
     }
 
     private static function serverLimitMb(): int

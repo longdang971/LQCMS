@@ -1,3 +1,4 @@
+<?php defined('LQ_ROOT') || exit; ?>
 <div class="auth-card">
   <h1>Đăng nhập</h1>
   <p class="muted">Nhập tài khoản để vào trang quản trị.</p>

@@ -58,14 +58,24 @@ final class Cron
             return;
         }
         register_shutdown_function(static function (): void {
+            // Nhả khoá session trước: fastcgi_finish_request() không nhả, request kế tiếp của chính người này
+            // (cùng cookie phiên) sẽ đứng chờ tới khi mọi tác vụ chạy xong.
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
+            }
             // Trả trang cho người dùng trước (PHP-FPM), rồi mới chạy tác vụ.
             if (function_exists('fastcgi_finish_request')) {
                 fastcgi_finish_request();
             }
+            // Không có FPM (Apache mod_php, php -S) thì thứ tác vụ in ra (echo của plugin, warning) bị nối vào cuối
+            // phản hồi — làm hỏng JSON của AJAX. Nuốt hết.
+            ob_start();
             try {
                 self::run('web');
             } catch (Throwable $e) {
                 error_log('[LQCMS] Cron (web) lỗi: ' . $e->getMessage());
+            } finally {
+                ob_end_clean();
             }
         });
     }
@@ -76,7 +86,9 @@ final class Cron
      */
     public static function run(string $via, bool $force = false): ?array
     {
-        $lock = 'lq_cron_' . db()->prefix;
+        // Tên khoá GET_LOCK có hiệu lực trên cả máy chủ MariaDB: thêm tên database, kẻo hai site cùng prefix "lq_"
+        // (vd. thật + staging) chặn cron của nhau. MD5 để không vượt giới hạn 64 ký tự của MySQL.
+        $lock = (string) db()->value("SELECT CONCAT('lq_cron_', MD5(CONCAT(DATABASE(), '.', ?)))", [db()->prefix]);
         if ((int) db()->value('SELECT GET_LOCK(?, 0)', [$lock]) !== 1) {
             return null;
         }
@@ -99,8 +111,10 @@ final class Cron
                 }
                 $entry['ms'] = (int) round((microtime(true) - $start) * 1000);
                 $state[$name] = $ran[$name] = $entry;
+                // Lưu sau TỪNG tác vụ: tác vụ sau chết hẳn (quá max_execution_time, hết bộ nhớ — không bắt được) thì
+                // các tác vụ đã chạy vẫn được ghi nhận, không bị chạy lại mỗi phút.
+                update_option('cron_state', $state, false);
             }
-            update_option('cron_state', $state, false);
             return $ran;
         } finally {
             db()->value('SELECT RELEASE_LOCK(?)', [$lock]);
@@ -124,6 +138,9 @@ final class Cron
         $n += db()->query('DELETE FROM {user_tokens} WHERE expires_at < ?', [now_utc()])->rowCount();
         if ((int) option('db_version', 1) >= 5) {
             $n += db()->query("DELETE FROM {post_revisions} WHERE kind = 'autosave' AND created_at < ?", [gmdate('Y-m-d H:i:s', time() - 30 * 86400)])->rowCount();
+        }
+        if ((int) option('db_version', 1) >= 6) {
+            $n += db()->query('DELETE FROM {rate_limits} WHERE window_start < ?', [time() - 3600])->rowCount();
         }
         do_action('cron_cleanup');
         return "Đã dọn $n bản ghi";

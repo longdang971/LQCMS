@@ -45,6 +45,7 @@ final class PostsController
             'category' => (int) input('category', 0),
             'tag' => (int) input('tag', 0),
             'term' => (int) input('term', 0),
+            'month' => preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', input_str('month')) ? input_str('month') : '',
         ];
 
         if ($type === 'page') {
@@ -71,7 +72,9 @@ final class PostsController
             'filters' => $filters,
             'page' => $page,
             'pages' => (int) max(1, ceil($result['total'] / self::PER_PAGE)),
+            'perPage' => self::PER_PAGE,
             'categories' => Terms::tree(Terms::all('category')),
+            'months' => Posts::months(),
         ] + $result);
     }
 
@@ -108,6 +111,8 @@ final class PostsController
             'type' => $type,
             'errors' => $errors,
             'permalink' => $post && $post['status'] === 'published' ? Posts::permalink($post) : null,
+            // Bài chưa đăng: xem trước qua ?p=ID (frontend chỉ cho người có quyền sửa xem).
+            'previewUrl' => $post && $post['status'] !== 'published' && $post['status'] !== 'trash' ? site_url('/?p=' . $post['id'] . '&preview=1') : null,
             'author' => $post ? Auth::find((int) $post['author_id']) : current_user(),
             'boxes' => PostFields::layout($type),
             'featuredMedia' => !empty($post['featured_image']) ? Media::findByPath($post['featured_image']) : null,
@@ -116,9 +121,16 @@ final class PostsController
         if ($type === 'page') {
             $exclude = $post ? Pages::descendantIds((int) $post['id']) : [];
             $parentRow = $post && $post['parent_id'] ? Posts::find((int) $post['parent_id'], 'page') : null;
+            $parents = array_values(array_filter(Pages::tree(), fn ($pg) => !in_array((int) $pg['id'], $exclude, true)));
+            // Trang cha đang nằm trong thùng rác: Pages::tree() bỏ qua nên phải thêm vào, không thì lưu trang con
+            // sẽ âm thầm đưa nó lên cấp gốc (khôi phục trang cha cũng không gắn lại được).
+            if ($parentRow && $parentRow['status'] === 'trash') {
+                $parents[] = $parentRow + ['depth' => 0];
+            }
             View::render('admin/pages/form', $common + [
                 'title' => $post ? 'Sửa trang' : 'Thêm trang mới',
-                'parents' => array_values(array_filter(Pages::tree(), fn ($pg) => !in_array((int) $pg['id'], $exclude, true))),
+                'subject' => $post ? ($post['title'] ?: '(Không tiêu đề)') : '',
+                'parents' => $parents,
                 'templates' => Pages::templates(),
                 // Khung URL: site/[đường dẫn trang cha/]slug/
                 'pathPrefix' => site_url('/' . ($parentRow ? Pages::path($parentRow) . '/' : '')),
@@ -136,6 +148,7 @@ final class PostsController
         ]);
         View::render('admin/posts/form', $common + [
             'title' => $post ? 'Sửa bài viết' : 'Viết bài mới',
+            'subject' => $post ? ($post['title'] ?: '(Không tiêu đề)') : '',
             'categories' => Terms::tree(Terms::all('category')),
             'selectedCats' => $post ? array_map('intval', array_column(Terms::forPost((int) $post['id'], 'category'), 'id')) : [(int) option('default_category')],
             'tags' => $post ? array_column(Terms::forPost((int) $post['id'], 'tag'), 'name') : [],
@@ -174,10 +187,6 @@ final class PostsController
                 $featured = $url;
             }
         }
-        if (!empty($_FILES['featured_image']['name']) && can('upload_files')) {
-            [$url, $err] = Uploads::storeImage($_FILES['featured_image']);
-            $err ? flash('error', 'Ảnh đại diện: ' . $err) : ($featured = $url);
-        }
 
         // Field do theme/plugin khai báo: kiểm tra trước, lỗi thì không lưu gì cả.
         $metaInput = is_array($_POST['meta'] ?? null) ? $_POST['meta'] : [];
@@ -202,6 +211,10 @@ final class PostsController
         }
 
         PostFields::save($savedId, $metaValues, $_POST, $type);
+        // Ảnh đại diện tải lên khi bài chưa có slug (form đánh dấu featured_pending): giờ bài đã có slug thì đặt tên theo slug.
+        if ($pending = (int) input('featured_pending', 0)) {
+            Media::adoptPostSlug($pending, Posts::find($savedId, $type) ?? []);
+        }
 
         $post = Posts::find($savedId, $type);
         $uid = (int) current_user()['id'];
@@ -276,9 +289,10 @@ final class PostsController
                 'trash' => !$isTrash && (Posts::trash($id) || true),
                 'restore' => $isTrash && (Posts::restore($id) || true),
                 'delete' => $isTrash && (Posts::destroy($id) || true),
+                // Ngày đăng ở tương lai thì thành "Lên lịch" (giống Posts::save), để cron đăng đúng giờ.
                 'publish' => !$isTrash && ($type === 'page' || can('publish_posts')) && db()->query(
-                    "UPDATE {posts} SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ? WHERE id = ?",
-                    [now_utc(), now_utc(), $id]
+                    "UPDATE {posts} SET status = IF(COALESCE(published_at, ?) > ?, 'scheduled', 'published'), published_at = COALESCE(published_at, ?), updated_at = ? WHERE id = ?",
+                    [now_utc(), now_utc(), now_utc(), now_utc(), $id]
                 ),
                 'draft' => !$isTrash && db()->update('posts', ['status' => 'draft', 'updated_at' => now_utc()], ['id' => $id]) >= 0,
             };
@@ -320,13 +334,19 @@ final class PostsController
             if (!$post || !Posts::canEdit($post)) {
                 json_response(['ok' => false, 'message' => 'Không tìm thấy hoặc không có quyền sửa.'], 403);
             }
+            // Lọc ngay khi ghi (như Posts::save): bản tự lưu được khôi phục/hiện lại sau này, có khi bởi người có quyền cao hơn.
+            if (!can('unfiltered_html')) {
+                $content = \LQ\Core\Html::sanitize($content);
+            }
             $at = Revisions::autosave($id, $uid, $title, $content);
             json_response(['ok' => true, 'id' => $id, 'saved_at' => format_date($at, 'H:i:s')]);
         }
         if (trim($title) === '' && trim(strip_tags($content)) === '') {
             json_response(['ok' => true, 'skipped' => true]);
         }
-        [$errors, $newId] = Posts::save(['title' => $title, 'content' => $content, 'action' => 'draft'], null, null, $type);
+        // Trang: gửi kèm trang cha đang chọn, nếu không slug bị tính như trang cấp gốc (tránh trùng bài/chuyên mục ở gốc → "-2" oan).
+        $extra = $type === 'page' ? ['parent_id' => (int) ($_POST['parent_id'] ?? 0)] : [];
+        [$errors, $newId] = Posts::save(['title' => $title, 'content' => $content, 'action' => 'draft'] + $extra, null, null, $type);
         if ($errors) {
             json_response(['ok' => false, 'message' => reset($errors)], 422);
         }
@@ -376,6 +396,7 @@ final class PostsController
         $rev = $revId ? Revisions::find($revId, (int) $post['id']) : null;
         View::render('admin/posts/revisions', [
             'title' => 'Lịch sử phiên bản',
+            'subject' => $post['title'] ?: '(Không tiêu đề)',
             'post' => $post,
             'type' => $post['type'],
             'base' => self::base($post['type']),

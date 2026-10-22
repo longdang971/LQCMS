@@ -6,13 +6,15 @@ namespace LQ\Core;
 use Throwable;
 
 /**
- * Plugin nằm ở public/content/plugins/<slug>/<slug>.php, đầu file có khối chú thích:
+ * Plugin nằm ở content/plugins/<slug>/<slug>.php, đầu file có khối chú thích:
  *   /**
  *    * Plugin Name: Tên plugin
  *    * Description: Mô tả
  *    * Version: 1.0.0
  *    * Author: Tên tác giả
+ *    * Icon: cloud           (tuỳ chọn) tên icon Lucide hiện cạnh tên trong danh sách plugin
  *    *\/
+ * Muốn dùng logo riêng thì đặt icon.svg / icon.png / icon.webp / icon.jpg trong thư mục plugin (ưu tiên hơn "Icon:").
  * Khi kích hoạt / tắt, hệ thống gọi action "activate_<slug>" / "deactivate_<slug>".
  */
 final class Plugins
@@ -24,7 +26,9 @@ final class Plugins
         'author' => 'Author',
         'author_url' => 'Author URI',
         'requires_php' => 'Requires PHP',
+        'icon' => 'Icon',
     ];
+    private const ICON_FILES = ['icon.svg', 'icon.png', 'icon.webp', 'icon.jpg'];
 
     public static function dir(): string
     {
@@ -67,7 +71,21 @@ final class Plugins
             return null;
         }
         $meta = self::parseHeader(self::mainFile($slug));
-        return $meta ? ['slug' => $slug] + $meta : null;
+        if (!$meta) {
+            return null;
+        }
+        // Tên icon Lucide chỉ gồm chữ thường, số, gạch nối — sai dạng thì bỏ, dùng icon mặc định.
+        if (!preg_match('/^[a-z0-9-]{1,40}$/', $meta['icon'])) {
+            $meta['icon'] = '';
+        }
+        $meta['icon_url'] = '';
+        foreach (self::ICON_FILES as $f) {
+            if (is_file($file = self::dir() . "/$slug/$f")) {
+                $meta['icon_url'] = "/content/plugins/$slug/$f?v=" . filemtime($file);
+                break;
+            }
+        }
+        return ['slug' => $slug] + $meta;
     }
 
     private static function parseHeader(string $file): ?array
@@ -78,7 +96,8 @@ final class Plugins
         $head = (string) file_get_contents($file, false, null, 0, 8192);
         $meta = [];
         foreach (self::HEADERS as $key => $label) {
-            $meta[$key] = preg_match('/^[\s\/*#@]*' . preg_quote($label, '/') . ':(.*)$/mi', $head, $m) ? trim($m[1]) : '';
+            /* Bỏ dấu đóng chú thích (hoặc thẻ đóng PHP) cùng dòng: một dòng "Plugin Name: Foo" kết thúc bằng dấu đóng → "Foo". */
+            $meta[$key] = preg_match('/^[\s\/*#@]*' . preg_quote($label, '/') . ':(.*)$/mi', $head, $m) ? trim(preg_replace('/\*\/.*|\?>.*/', '', $m[1])) : '';
         }
         return $meta['name'] !== '' ? $meta : null;
     }
@@ -120,7 +139,7 @@ final class Plugins
         }
         try {
             require_once self::mainFile($slug);
-            do_action("activate_$slug");
+            Hooks::runStrict("activate_$slug"); // không qua do_action: lỗi plugin ở đó bị nuốt, mà ở đây lỗi = từ chối kích hoạt
         } catch (Throwable $e) {
             return 'Plugin gây lỗi khi kích hoạt: ' . $e->getMessage();
         }
@@ -139,6 +158,12 @@ final class Plugins
             error_log("[LQCMS] deactivate_$slug lỗi: " . $e->getMessage());
         }
         update_option('active_plugins', array_values(array_diff(self::activeSlugs(), [$slug])));
+    }
+
+    /** Tên + phiên bản của plugin đã giải nén (chưa cài) — cho trang kiểm tra trước khi cài. */
+    public static function describePackage(string $dir): array
+    {
+        return self::parseHeader("$dir/" . basename($dir) . '.php') ?? [];
     }
 
     public static function validatePackage(string $dir): ?string

@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace LQ\Admin;
 
-use LQ\Core\Package;
 use LQ\Core\Themes;
 use LQ\Core\View;
 
@@ -48,14 +47,6 @@ final class ThemesController
             rrmdir(Themes::dir() . "/$slug");
             flash('success', 'Đã xoá theme "' . $theme['name'] . '".');
         }
-        redirect('/admin/themes');
-    }
-
-    public static function upload(): void
-    {
-        Kernel::require('manage_themes');
-        [$slug, $err] = Package::installZip($_FILES['package'] ?? [], Themes::dir(), [Themes::class, 'validatePackage']);
-        $err ? flash('error', $err) : flash('success', 'Đã cài theme "' . (Themes::read($slug)['name'] ?? $slug) . '". Bấm Kích hoạt để sử dụng.');
         redirect('/admin/themes');
     }
 }

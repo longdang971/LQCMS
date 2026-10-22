@@ -77,7 +77,8 @@ final class Pages
         }
         if ($q !== '') {
             $where[] = '(p.title LIKE ? OR p.slug LIKE ?)';
-            array_push($params, '%' . addcslashes($q, '%_\\') . '%', '%' . (\LQ\Core\Slug::make($q) ?: $q) . '%');
+            $like = '%' . addcslashes($q, '%_\\') . '%';
+            array_push($params, $like, ($s = \LQ\Core\Slug::make($q)) !== '' ? "%$s%" : $like);
         }
         $rows = db()->all(
             'SELECT p.*, u.display_name AS author_name FROM {posts} p LEFT JOIN {users} u ON u.id = p.author_id

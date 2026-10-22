@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Content\Posts;
 use LQ\Content\Taxonomies;
 
@@ -14,7 +15,6 @@ $tabs = ['' => 'Tất cả', 'published' => 'Đã đăng', 'scheduled' => 'Lên 
 <div class="page-head">
   <div>
     <h1>Bài viết</h1>
-    <p><?= number_format($total, 0, ',', '.') ?> bài viết<?= $filters['q'] !== '' ? ' khớp với "' . e($filters['q']) . '"' : '' ?></p>
   </div>
   <div class="page-actions">
     <?php if ($isTrash && $counts['trash'] > 0 && can('edit_others_posts')): ?>
@@ -40,19 +40,22 @@ $tabs = ['' => 'Tất cả', 'published' => 'Đã đăng', 'scheduled' => 'Lên 
 <div class="card card-flush">
   <form class="toolbar" method="get" action="/admin/posts">
     <?php if ($filters['status'] !== ''): ?><input type="hidden" name="status" value="<?= e($filters['status']) ?>"><?php endif; ?>
-    <div class="input-icon grow">
-      <?= icon('search') ?>
-      <input class="input" type="search" name="q" value="<?= e($filters['q']) ?>" placeholder="Tìm theo tiêu đề hoặc slug…">
-    </div>
-    <select class="input w-auto" name="category" data-autosubmit>
+    <?php if ($filters['q'] !== ''): ?><input type="hidden" name="q" value="<?= e($filters['q']) ?>"><?php endif; ?>
+    <select class="input w-auto" name="category">
       <option value="">Mọi chuyên mục</option>
       <?php foreach ($categories as $c): ?>
         <option value="<?= (int) $c['id'] ?>"<?= selected($c['id'], $filters['category']) ?>><?= str_repeat('— ', $c['depth']) . e($c['name']) ?></option>
       <?php endforeach; ?>
     </select>
-    <button class="btn btn-secondary" type="submit">Lọc</button>
-    <?php if ($filters['q'] !== '' || $filters['category'] || $filters['tag'] || $filters['term']): ?>
-      <a class="btn btn-ghost" href="<?= e($qs(['q' => '', 'category' => 0, 'tag' => 0, 'term' => 0, 'page' => ''])) ?>">Xoá lọc</a>
+    <select class="input w-auto" name="month">
+      <option value="">Mọi thời gian</option>
+      <?php foreach ($months as $ym => $label): ?>
+        <option value="<?= e($ym) ?>"<?= selected($ym, $filters['month']) ?>><?= e($label) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <button class="btn btn-secondary" type="submit"><?= icon('filter') ?> Lọc</button>
+    <?php if ($filters['q'] !== '' || $filters['category'] || $filters['tag'] || $filters['term'] || $filters['month'] !== ''): ?>
+      <a class="btn btn-ghost" href="<?= e($qs(['q' => '', 'category' => 0, 'tag' => 0, 'term' => 0, 'month' => '', 'page' => ''])) ?>"><?= icon('x') ?> Xoá lọc</a>
     <?php endif; ?>
   </form>
 
@@ -83,41 +86,35 @@ $tabs = ['' => 'Tất cả', 'published' => 'Đã đăng', 'scheduled' => 'Lên 
         <button class="btn btn-sm btn-primary" type="submit">Áp dụng</button>
       </div>
       <div class="table-wrap">
-        <table class="table">
+        <table class="table table-fit">
           <thead>
             <tr>
               <th class="col-check"><input type="checkbox" data-check-all aria-label="Chọn tất cả"></th>
-              <th>Tiêu đề</th>
+              <th class="col-title">Tiêu đề</th>
               <th class="hide-sm">Tác giả</th>
-              <th class="hide-md">Chuyên mục</th>
               <th class="hide-md">Thẻ</th>
               <?php foreach ($listTax as $lt): ?><th class="hide-md"><?= e($lt['label']) ?></th><?php endforeach; ?>
               <th>Trạng thái</th>
               <th class="hide-sm">Ngày đăng</th>
-              <th class="col-actions"></th>
+              <th class="col-actions">Hành động</th>
             </tr>
           </thead>
           <tbody>
           <?php foreach ($items as $p): $editUrl = '/admin/posts/' . (int) $p['id'] . '/edit'; ?>
             <tr>
               <td class="col-check"><input type="checkbox" name="ids[]" value="<?= (int) $p['id'] ?>" data-check-item aria-label="Chọn bài"></td>
-              <td>
+              <td class="col-title">
                 <div class="post-cell">
-                  <?= post_thumb($p['featured_image'], $p['title']) ?>
                   <div>
                     <?php if ($isTrash): ?>
                       <strong><?= e($p['title'] ?: '(Không tiêu đề)') ?></strong>
                     <?php else: ?>
                       <a class="row-title" href="<?= e($editUrl) ?>"><?= e($p['title'] ?: '(Không tiêu đề)') ?></a>
                     <?php endif; ?>
-                    <div class="row-sub">/<?= e($p['slug']) ?></div>
                   </div>
                 </div>
               </td>
               <td class="hide-sm"><span class="author-cell"><?= avatar($p['author_name'] ?? '?', 'sm', (string) $p['author_id']) ?><?= e($p['author_name'] ?? '—') ?></span></td>
-              <td class="hide-md term-links">
-                <?= implode('', array_map(fn ($c) => '<a class="cat" href="' . e($qs(['category' => $c['id'], 'page' => ''])) . '">' . cat_dot((int) $c['id']) . e($c['name']) . '</a>', $p['categories'])) ?: '—' ?>
-              </td>
               <td class="hide-md term-links tag-text">
                 <?= implode(', ', array_map(fn ($t) => '<a href="' . e($qs(['tag' => $t['id'], 'page' => ''])) . '">#' . e($t['name']) . '</a>', array_slice($p['tags'], 0, 2))) ?: '—' ?>
                 <?php if (count($p['tags']) > 2): ?> +<?= count($p['tags']) - 2 ?><?php endif; ?>
@@ -157,28 +154,47 @@ $tabs = ['' => 'Tất cả', 'published' => 'Đã đăng', 'scheduled' => 'Lên 
       </div>
     </form>
 
-    <?php // Form hành động riêng từng dòng (nằm ngoài form bulk vì HTML không cho form lồng nhau). ?>
+    <?php // Form hành động riêng từng dòng (nằm ngoài form bulk vì HTML không cho form lồng nhau).
+          // Tiêu đề bài chỉ đặt ở data-confirm-text: data-confirm thành tiêu đề SweetAlert, được vẽ như HTML. ?>
     <?php foreach ($items as $p): $id = (int) $p['id']; $t = e($p['title'] ?: '(Không tiêu đề)'); ?>
       <?php if ($isTrash): ?>
         <form id="act-restore-<?= $id ?>" method="post" action="/admin/posts/<?= $id ?>/restore" hidden><?= csrf_field() ?></form>
         <form id="act-delete-<?= $id ?>" method="post" action="/admin/posts/<?= $id ?>/delete" hidden
-              data-confirm="Xoá vĩnh viễn &quot;<?= $t ?>&quot;?" data-confirm-text="Thao tác này không thể hoàn tác." data-confirm-label="Xoá vĩnh viễn" data-confirm-danger><?= csrf_field() ?></form>
+              data-confirm="Xoá vĩnh viễn bài viết?" data-confirm-text="&quot;<?= $t ?>&quot; — thao tác này không thể hoàn tác." data-confirm-label="Xoá vĩnh viễn" data-confirm-danger><?= csrf_field() ?></form>
       <?php else: ?>
         <form id="act-trash-<?= $id ?>" method="post" action="/admin/posts/<?= $id ?>/trash" hidden
-              data-confirm="Chuyển &quot;<?= $t ?>&quot; vào thùng rác?" data-confirm-text="Bạn có thể khôi phục lại trong mục Thùng rác." data-confirm-label="Chuyển vào thùng rác"><?= csrf_field() ?></form>
+              data-confirm="Chuyển bài viết vào thùng rác?" data-confirm-text="&quot;<?= $t ?>&quot; — bạn có thể khôi phục lại trong mục Thùng rác." data-confirm-label="Chuyển vào thùng rác"><?= csrf_field() ?></form>
       <?php endif; ?>
     <?php endforeach; ?>
 
-    <?php if ($pages > 1): ?>
-      <nav class="pagination">
-        <span class="muted">Trang <?= $page ?> / <?= $pages ?></span>
+    <?php if ($pages > 1):
+        // Luôn có trang đầu, trang cuối và 1 trang hai bên trang hiện tại; chỗ hở thay bằng "…" (hở đúng 1 trang thì hiện luôn số đó).
+        $nums = array_values(array_unique(array_filter([1, $page - 1, $page, $page + 1, $pages], fn ($n) => $n >= 1 && $n <= $pages)));
+        sort($nums);
+        $from = ($page - 1) * $perPage + 1;
+        $to = min($total, $page * $perPage);
+    ?>
+      <nav class="pagination" aria-label="Phân trang">
+        <span class="pagination-info"><b><?= $from ?>–<?= $to ?></b> trong <?= number_format($total, 0, ',', '.') ?> bài viết</span>
         <div class="pager">
-          <a class="icon-btn sm<?= $page <= 1 ? ' disabled' : '' ?>" href="<?= e($qs(['page' => max(1, $page - 1)])) ?>" aria-label="Trang trước"><?= icon('chevron-left') ?></a>
-          <?php for ($i = max(1, $page - 2); $i <= min($pages, $page + 2); $i++): ?>
-            <a class="page-num<?= $i === $page ? ' is-active' : '' ?>" href="<?= e($qs(['page' => $i])) ?>"><?= $i ?></a>
-          <?php endfor; ?>
-          <a class="icon-btn sm<?= $page >= $pages ? ' disabled' : '' ?>" href="<?= e($qs(['page' => min($pages, $page + 1)])) ?>" aria-label="Trang sau"><?= icon('chevron-right') ?></a>
+          <a class="pager-step<?= $page <= 1 ? ' disabled' : '' ?>" href="<?= e($qs(['page' => max(1, $page - 1)])) ?>" rel="prev"><?= icon('chevron-left') ?><span>Trước</span></a>
+          <div class="pager-nums">
+            <?php $prev = 0; foreach ($nums as $n): ?>
+              <?php if ($n - $prev === 2): ?>
+                <a class="page-num" href="<?= e($qs(['page' => $n - 1])) ?>"><?= $n - 1 ?></a>
+              <?php elseif ($n - $prev > 2): ?>
+                <span class="page-gap" aria-hidden="true">…</span>
+              <?php endif; ?>
+              <?php if ($n === $page): ?>
+                <span class="page-num is-active" aria-current="page"><?= $n ?></span>
+              <?php else: ?>
+                <a class="page-num" href="<?= e($qs(['page' => $n])) ?>"><?= $n ?></a>
+              <?php endif; ?>
+            <?php $prev = $n; endforeach; ?>
+          </div>
+          <a class="pager-step<?= $page >= $pages ? ' disabled' : '' ?>" href="<?= e($qs(['page' => min($pages, $page + 1)])) ?>" rel="next"><span>Sau</span><?= icon('chevron-right') ?></a>
         </div>
+        <span class="pagination-info is-end">Trang <b><?= $page ?></b> / <?= $pages ?></span>
       </nav>
     <?php endif; ?>
   <?php endif; ?>

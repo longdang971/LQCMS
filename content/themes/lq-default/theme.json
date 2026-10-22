@@ -1,0 +1,7 @@
+{
+  "name": "LQ Default",
+  "description": "Theme mặc định của LQCMS: trang chủ dạng bento, đọc bài thoáng, có chế độ tối. Đồng thời là ví dụ đầy đủ cho API viết theme.",
+  "version": "2.0.0",
+  "author": "LQCMS",
+  "screenshot": "screenshot.svg"
+}

@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 $custom = old('custom_structure', $current === 'custom' ? $structure : '/%year%/%postname%/');
 $choice = old('preset', $current);
 $site = rtrim((string) option('site_url'), '/');
@@ -6,7 +7,6 @@ $site = rtrim((string) option('site_url'), '/');
 <div class="page-head">
   <div>
     <h1>Đường dẫn tĩnh</h1>
-    <p>Chọn cấu trúc URL cho bài viết. Việc rewrite do PHP xử lý nên không phải sửa cấu hình nginx.</p>
   </div>
   <div class="page-actions">
     <button class="btn btn-primary" type="submit" form="permalink-form">Lưu thay đổi</button>
@@ -123,7 +123,7 @@ $site = rtrim((string) option('site_url'), '/');
       </details>
       <details class="boxed help-card">
         <summary><?= icon('server') ?> Apache</summary>
-        <p class="small">Tệp <code>public/.htaccess</code> đã có sẵn nội dung này:</p>
+        <p class="small">Tệp <code>.htaccess</code> ở thư mục gốc đã có sẵn nội dung này:</p>
         <pre class="code-block">RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d

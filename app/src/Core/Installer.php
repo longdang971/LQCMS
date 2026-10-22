@@ -21,13 +21,14 @@ final class Installer
             if (!Csrf::valid()) {
                 $errors['_'] = 'Phiên làm việc đã hết hạn, vui lòng thử lại.';
             } else {
-                [$errors, $configText] = $this->install($_POST);
+                [$errors, $configText] = $this->install(array_filter($_POST, 'is_string')); // form chỉ có ô chữ
                 if (!$errors && $configText === null) {
                     flash('success', 'Cài đặt LQCMS thành công. Chào mừng bạn!');
                     redirect('/admin');
                 }
             }
-            Session::keepOld($_POST);
+            // keepOld chỉ bỏ khoá chứa "password": đừng để mật khẩu DB nằm trong session. Form chỉ có ô chữ nên bỏ giá trị mảng.
+            Session::keepOld(array_diff_key(array_filter($_POST, 'is_string'), ['db_pass' => 1]));
             // Render lại ngay trong request này nên chuyển thẳng sang "current".
             $_SESSION['_old_current'] = $_SESSION['_old_next'];
             unset($_SESSION['_old_next']);
@@ -89,8 +90,15 @@ final class Installer
         }
         App::setDb($database);
 
-        if ($database->value('SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?', [$db['prefix'] . 'options'])) {
-            return [['_' => 'Database đã có bảng LQCMS với prefix "' . $db['prefix'] . '". Hãy đổi prefix hoặc xoá bảng cũ.'], null];
+        // Bất kỳ bảng nào trùng tên (của bản cài cũ hay ứng dụng khác dùng chung database) đều chặn: schema dùng
+        // CREATE TABLE IF NOT EXISTS nên sẽ lặng lẽ dùng bảng lạ, và khi cài lỗi dropTables() sẽ xoá mất bảng không phải của mình.
+        $names = array_map(fn ($t) => $db['prefix'] . $t, $this->schemaTables());
+        $taken = $database->pdo->query(
+            'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('
+            . implode(',', array_map([$database->pdo, 'quote'], $names)) . ')'
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        if ($taken) {
+            return [['_' => 'Database đã có bảng ' . implode(', ', $taken) . '. Hãy đổi prefix hoặc xoá bảng cũ.'], null];
         }
 
         try {
@@ -134,10 +142,18 @@ final class Installer
         return (string) preg_replace('/^--.*$/m', '', $sql);
     }
 
+    /** Tên bảng (chưa có prefix) mà schema.sql tạo, theo thứ tự trong tệp. */
+    private function schemaTables(): array
+    {
+        preg_match_all('/CREATE TABLE IF NOT EXISTS \\{([a-z_]+)\\}/i', $this->schemaSql(), $m);
+        return $m[1];
+    }
+
+    /** Cài lỗi giữa chừng: xoá bảng vừa tạo. Trước khi tạo đã chắc không bảng nào trùng tên có sẵn, nên chỉ xoá bảng của mình. */
     private function dropTables(Database $db): void
     {
         $db->pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['post_revisions', 'media', 'post_meta', 'old_slugs', 'post_terms', 'terms', 'posts', 'options', 'login_attempts', 'user_tokens', 'users'] as $t) {
+        foreach (array_reverse($this->schemaTables()) as $t) {
             $db->pdo->exec('DROP TABLE IF EXISTS ' . $db->table($t));
         }
         $db->pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -168,6 +184,10 @@ final class Installer
             'active_theme' => 'lq-default',
             'active_plugins' => [],
             'upload_max_mb' => 8,
+            'media_keep_original' => true,
+            'media_max_width' => 2560,
+            'media_max_height' => 2560,
+            'media_quality' => 82,
             'db_version' => Migrations::LATEST,
         ];
         foreach ($defaults as $k => $v) {

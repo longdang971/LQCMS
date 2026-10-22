@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Content\Posts;
 
 $isTrash = $filters['status'] === 'trash';
@@ -8,7 +9,6 @@ $qs = fn (array $o) => '/admin/pages' . (($q = array_filter(array_merge(['status
 <div class="page-head">
   <div>
     <h1>Trang</h1>
-    <p>Các trang tĩnh như Giới thiệu, Liên hệ, Chính sách · <?= count($items) ?> trang</p>
   </div>
   <div class="page-actions">
     <?php if ($isTrash && $counts['trash'] > 0): ?>
@@ -65,7 +65,7 @@ $qs = fn (array $o) => '/admin/pages' . (($q = array_filter(array_merge(['status
         <button class="btn btn-sm btn-primary" type="submit">Áp dụng</button>
       </div>
       <div class="table-wrap">
-        <table class="table">
+        <table class="table table-fit">
           <thead>
             <tr>
               <th class="col-check"><input type="checkbox" data-check-all aria-label="Chọn tất cả"></th>
@@ -74,7 +74,7 @@ $qs = fn (array $o) => '/admin/pages' . (($q = array_filter(array_merge(['status
               <th class="hide-sm">Tác giả</th>
               <th>Trạng thái</th>
               <th class="hide-sm">Ngày</th>
-              <th class="col-actions"></th>
+              <th class="col-actions">Hành động</th>
             </tr>
           </thead>
           <tbody>
@@ -121,12 +121,13 @@ $qs = fn (array $o) => '/admin/pages' . (($q = array_filter(array_merge(['status
         </table>
       </div>
     </form>
+    <?php // Tiêu đề trang chỉ đặt ở data-confirm-text: data-confirm thành tiêu đề SweetAlert, được vẽ như HTML. ?>
     <?php foreach ($items as $p): $id = (int) $p['id']; $t = e($p['title'] ?: '(Không tiêu đề)'); ?>
       <?php if ($isTrash): ?>
         <form id="act-restore-<?= $id ?>" method="post" action="/admin/pages/<?= $id ?>/restore" hidden><?= csrf_field() ?></form>
-        <form id="act-delete-<?= $id ?>" method="post" action="/admin/pages/<?= $id ?>/delete" hidden data-confirm="Xoá vĩnh viễn &quot;<?= $t ?>&quot;?" data-confirm-text="Trang con sẽ được chuyển lên cấp trên. Không thể hoàn tác." data-confirm-label="Xoá vĩnh viễn" data-confirm-danger><?= csrf_field() ?></form>
+        <form id="act-delete-<?= $id ?>" method="post" action="/admin/pages/<?= $id ?>/delete" hidden data-confirm="Xoá vĩnh viễn trang?" data-confirm-text="&quot;<?= $t ?>&quot; — trang con sẽ được chuyển lên cấp trên. Không thể hoàn tác." data-confirm-label="Xoá vĩnh viễn" data-confirm-danger><?= csrf_field() ?></form>
       <?php else: ?>
-        <form id="act-trash-<?= $id ?>" method="post" action="/admin/pages/<?= $id ?>/trash" hidden data-confirm="Chuyển &quot;<?= $t ?>&quot; vào thùng rác?" data-confirm-label="Chuyển vào thùng rác"><?= csrf_field() ?></form>
+        <form id="act-trash-<?= $id ?>" method="post" action="/admin/pages/<?= $id ?>/trash" hidden data-confirm="Chuyển trang vào thùng rác?" data-confirm-text="&quot;<?= $t ?>&quot;" data-confirm-label="Chuyển vào thùng rác"><?= csrf_field() ?></form>
       <?php endif; ?>
     <?php endforeach; ?>
   <?php endif; ?>

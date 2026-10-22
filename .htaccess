@@ -1,0 +1,19 @@
+# Apache: web root là thư mục gốc project.
+# Chặn tệp/thư mục chỉ dành cho máy chủ (cấu hình, mã nguồn lõi, khoá, nhật ký, gói chờ cài) — nginx: xem nginx.conf.example.
+<FilesMatch "^(config\.php|nginx\.conf\.example|.*\.md)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^(app|storage|database|\.git)(/|$) - [R=404,L]
+# Tệp/thư mục ẩn (.env, .DS_Store, .gitignore…), chừa .well-known cho xác minh SSL.
+RewriteRule (^|/)\.(?!well-known(/|$)) - [R=404,L]
+# Chỉ index.php được chạy PHP; tệp .php trong theme/plugin/uploads không gọi thẳng được.
+# [NC]: AddHandler của Apache coi đuôi .PHP như .php.
+RewriteRule ^content/.*\.(php|phtml|phar)$ - [NC,R=404,L]
+# Mọi URL không phải tệp/thư mục thật đều chuyển cho index.php (PHP tự rewrite theo cài đặt permalink).
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
+</IfModule>

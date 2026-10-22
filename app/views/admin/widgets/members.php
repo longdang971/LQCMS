@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Admin\DashboardStats as S;
 use LQ\Core\Auth;
 

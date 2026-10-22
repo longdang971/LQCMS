@@ -1,3 +1,4 @@
+<?php defined('LQ_ROOT') || exit; ?>
 <div class="auth-card">
   <h1>Tạo tài khoản</h1>
   <?php if (!$enabled): ?>

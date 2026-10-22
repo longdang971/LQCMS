@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Admin\Charts;
 use LQ\Admin\DashboardStats as S;
 

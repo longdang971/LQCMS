@@ -1,13 +1,10 @@
 <?php
+defined('LQ_ROOT') || exit;
 $u = current_user();
 $today = new DateTimeImmutable('now', site_timezone());
 $weekday = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'][(int) $today->format('w')];
 $hour = (int) $today->format('G');
 $greet = $hour < 11 ? 'Chào buổi sáng' : ($hour < 14 ? 'Chào buổi trưa' : ($hour < 18 ? 'Chào buổi chiều' : 'Chào buổi tối'));
-$groups = [];
-foreach ($catalog as $w) {
-    $groups[$w['group']][] = $w;
-}
 ?>
 <div class="page-head">
   <div>
@@ -55,13 +52,27 @@ foreach ($catalog as $w) {
     <?= icon('search') ?>
     <input class="input" type="search" placeholder="Tìm widget…" data-drawer-search>
   </div>
+  <label class="check drawer-filter">
+    <input type="checkbox" data-drawer-show-used>
+    <span>Đã dùng <span class="muted" data-drawer-used-count></span></span>
+  </label>
   <div class="drawer-body">
-    <?php foreach ($groups as $group => $items): ?>
+    <p class="drawer-none muted small" data-drawer-none hidden></p>
+    <?php foreach ($catalog as $group): ?>
       <div class="drawer-group" data-drawer-group>
-        <div class="subhead"><?= e($group) ?></div>
+        <?php if ($group['type'] === 'core'): ?>
+          <div class="subhead"><?= e($group['title']) ?></div>
+        <?php else: ?>
+          <div class="drawer-source">
+            <?= icon($group['type'] === 'plugin' ? 'plug' : 'palette') ?>
+            <strong><?= e($group['title']) ?></strong>
+            <span class="drawer-source-type"><?= $group['type'] === 'plugin' ? 'Plugin' : 'Theme' ?></span>
+            <span class="drawer-source-count"><?= count($group['items']) ?> widget</span>
+          </div>
+        <?php endif; ?>
         <div class="drawer-list" data-widget-catalog>
-          <?php foreach ($items as $w): ?>
-            <div class="catalog-item" data-catalog-id="<?= e($w['id']) ?>" data-size="<?= (int) $w['size'] ?>" data-search="<?= e(mb_strtolower($w['title'] . ' ' . $w['description'])) ?>">
+          <?php foreach ($group['items'] as $w): ?>
+            <div class="catalog-item" data-catalog-id="<?= e($w['id']) ?>" data-size="<?= (int) $w['size'] ?>" data-search="<?= e(mb_strtolower($w['title'] . ' ' . $w['description'] . ($group['type'] === 'core' ? '' : ' ' . $group['title']))) ?>">
               <span class="catalog-icon"><?= icon($w['icon']) ?></span>
               <span class="catalog-text">
                 <strong><?= e($w['title']) ?></strong>

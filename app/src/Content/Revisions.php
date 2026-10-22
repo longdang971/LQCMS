@@ -107,8 +107,16 @@ final class Revisions
     /** Đưa tiêu đề/nội dung của phiên bản về bài (tạo phiên bản mới ghi lại việc khôi phục). */
     public static function restore(array $post, array $rev, int $userId): void
     {
-        db()->update('posts', ['title' => $rev['title'], 'content' => $rev['content'], 'updated_at' => now_utc()], ['id' => $post['id']]);
-        self::record($post, ['id' => $post['id'], 'title' => $rev['title'], 'content' => $rev['content']], $userId);
+        // Bản tự lưu có thể là dữ liệu thô từ trình duyệt (bản ghi cũ trước khi autosave tự lọc): làm sạch như khi lưu bài.
+        // Xét cả người VIẾT bản tự lưu, không chỉ người bấm khôi phục — tác giả có thể dụ admin khôi phục bản tự lưu chứa <script>.
+        $content = (string) $rev['content'];
+        $foreign = ($rev['kind'] ?? '') === 'autosave' && (int) ($rev['author_id'] ?? 0) !== $userId;
+        if (!can('unfiltered_html') || $foreign) {
+            $content = \LQ\Core\Html::sanitize($content);
+        }
+        $content = apply_filters('content_save_pre', $content);
+        db()->update('posts', ['title' => $rev['title'], 'content' => $content, 'updated_at' => now_utc()], ['id' => $post['id']]);
+        self::record($post, ['id' => $post['id'], 'title' => $rev['title'], 'content' => $content], $userId);
         do_action('post_revision_restored', (int) $post['id'], (int) $rev['id']);
     }
 

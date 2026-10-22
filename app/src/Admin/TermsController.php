@@ -52,6 +52,7 @@ final class TermsController
         $exclude = $hier ? Terms::descendantIds((int) $term['id']) : [];
         View::render('admin/terms/edit', [
             'title' => 'Sửa ' . Terms::info($tax)['singular'],
+            'subject' => $term['name'],
             'tax' => $tax,
             'info' => Terms::info($tax),
             'term' => $term,

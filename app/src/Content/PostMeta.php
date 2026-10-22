@@ -24,9 +24,11 @@ final class PostMeta
         return self::all($postId)[$key] ?? $default;
     }
 
-    public static function set(int $postId, string $key, mixed $value): void
+    /** $keepEmpty: lưu cả giá trị rỗng thay vì xoá dòng (field có giá trị mặc định mà người dùng chủ động để trống). */
+    public static function set(int $postId, string $key, mixed $value, bool $keepEmpty = false): void
     {
-        if ($value === null || $value === '' || $value === []) {
+        // null luôn xoá dòng (vd. hoàn tác về lúc bài chưa từng có field này); '' / [] chỉ xoá khi không cần giữ.
+        if ($value === null || (!$keepEmpty && ($value === '' || $value === []))) {
             self::delete($postId, $key);
             return;
         }

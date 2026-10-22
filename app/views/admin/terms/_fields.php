@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 /** Các ô nhập dùng chung cho form thêm & sửa chuyên mục/thẻ. Biến: $tax, $term (có thể null), $parents, $errors */
 $val = fn (string $k) => old($k, $term[$k] ?? '');
 ?>
@@ -26,7 +27,12 @@ $val = fn (string $k) => old($k, $term[$k] ?? '');
   </div>
 <?php endif; ?>
 <div class="field">
-  <label for="description">Mô tả</label>
-  <textarea id="description" name="description" class="input" rows="4"><?= e($val('description')) ?></textarea>
-  <p class="help">Một số theme sẽ hiển thị mô tả này ở trang lưu trữ.</p>
+  <div class="label-row">
+    <label for="description">Mô tả</label>
+    <?php if (\LQ\AI\AI::enabled()): ?>
+      <button type="button" class="btn btn-ghost btn-xs" data-ai-term-desc data-tax="<?= e($tax) ?>" data-id="<?= (int) ($term['id'] ?? 0) ?>"><?= icon('sparkles') ?> Viết bằng AI</button>
+    <?php endif; ?>
+  </div>
+  <textarea id="description" name="description" class="input" rows="4" data-term-desc><?= e($val('description')) ?></textarea>
+  <p class="help">Dùng làm mô tả SEO (thẻ meta description) của trang lưu trữ, khoảng 150–160 ký tự là đẹp trên Google. Một số theme còn hiển thị mô tả này trên trang.</p>
 </div>

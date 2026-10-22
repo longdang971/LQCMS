@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 /**
  * Phần chống mất bài dùng chung cho form bài viết & trang: mốc thời gian lúc mở (phát hiện ghi đè),
  * thông báo xung đột, banner khôi phục bản tự lưu, cảnh báo người khác đang sửa.

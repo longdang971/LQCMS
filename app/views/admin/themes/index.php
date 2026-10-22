@@ -1,7 +1,7 @@
+<?php defined('LQ_ROOT') || exit; ?>
 <div class="page-head">
   <div>
     <h1>Giao diện</h1>
-    <p><?= count($themes) ?> theme đã cài · thư mục <code>public/content/themes</code></p>
   </div>
   <form method="post" action="/admin/themes/upload" enctype="multipart/form-data" data-upload-form>
     <?= csrf_field() ?>
@@ -32,11 +32,11 @@
           </div>
           <p class="muted small"><?= $t['version'] ? 'Phiên bản ' . e($t['version']) : '' ?><?= $t['version'] && $t['author'] ? ' · ' : '' ?><?= $t['author'] ? e($t['author']) : '' ?></p>
           <p class="theme-desc"><?= e($t['description']) ?></p>
-          <?php if ($t['tags']): ?>
-            <div class="chips"><?php foreach ($t['tags'] as $tag): ?><span class="chip chip-muted"><?= e($tag) ?></span><?php endforeach; ?></div>
-          <?php endif; ?>
         </div>
         <div class="theme-actions">
+          <?php if (\LQ\Admin\ThemeEditorController::allowed()): ?>
+            <a class="icon-btn sm" href="/admin/themes/editor?theme=<?= e(rawurlencode($t['slug'])) ?>" title="Chỉnh sửa"><?= icon('code-xml') ?></a>
+          <?php endif; ?>
           <?php if ($isActive): ?>
             <a class="btn btn-secondary btn-sm" href="/" target="_blank" rel="noopener">Xem trang web</a>
           <?php else: ?>

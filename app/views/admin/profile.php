@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 use LQ\Core\Auth;
 
 $initials = mb_strtoupper(mb_substr($user['display_name'] ?: $user['username'], 0, 1));
@@ -62,6 +63,25 @@ $initials = mb_strtoupper(mb_substr($user['display_name'] ?: $user['username'], 
         <p class="help">Bắt buộc khi đổi email hoặc mật khẩu.</p>
         <?= field_error($errors, 'current_password') ?>
       </div>
+    </div>
+  </section>
+
+  <section class="settings-section" id="admin-bar">
+    <div class="settings-label">
+      <h3>Thanh quản trị</h3>
+      <p class="muted">Thanh màu đen ở mép trên khi bạn xem website lúc đã đăng nhập.</p>
+    </div>
+    <div class="settings-fields">
+      <label class="switch-row boxed">
+        <span>
+          <strong>Hiện thanh quản trị khi xem website</strong>
+          <small class="muted">Lối tắt tới Bảng tin, viết bài mới, sửa trang đang xem. Chỉ áp dụng cho tài khoản của bạn.</small>
+        </span>
+        <span class="switch">
+          <input type="checkbox" name="admin_bar" value="1"<?= option('admin_bar_' . $user['id'], true) !== false ? ' checked' : '' ?>>
+          <span class="switch-ui"></span>
+        </span>
+      </label>
     </div>
   </section>
 

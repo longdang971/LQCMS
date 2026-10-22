@@ -1,4 +1,5 @@
 <?php
+defined('LQ_ROOT') || exit;
 /** Khung chọn term của một taxonomy tuỳ biến. Biến: $t (thông tin taxonomy + selected + tree) */
 $old = old('tax_input', null);
 $oldVal = is_array($old) && array_key_exists($t['key'], $old) ? $old[$t['key']] : null;
@@ -31,6 +32,6 @@ $oldVal = is_array($old) && array_key_exists($t['key'], $old) ? $old[$t['key']] 
       <div class="tag-suggest" data-tag-suggest hidden></div>
       <input type="hidden" name="tax_input[<?= e($t['key']) ?>]" value="<?= e($value) ?>" data-tag-value>
     </div>
-    <p class="help" style="margin-top: 6px"><?= $t['description'] !== '' ? e($t['description']) : 'Nhấn Enter hoặc dấu phẩy để thêm.' ?></p>
+    <p class="help" style="margin-top: 6px"><?= $t['description'] !== '' ? e($t['description']) : 'Nhấn Enter hoặc dấu phẩy để thêm.' ?><?php if (!can($t['cap'])): ?> Chỉ chọn được <?= e($t['singular']) ?> đã có — tên mới sẽ được bỏ qua.<?php endif; ?></p>
   <?php endif; ?>
 </section>

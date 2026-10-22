@@ -10,6 +10,27 @@ use LQ\Core\View;
 
 final class Kernel
 {
+    /**
+     * Nội dung chính của từng trang admin — để thanh ⌘K tìm được trang theo thứ cần chỉnh ("múi giờ", "kích thước ảnh")
+     * và để trợ lý AI dẫn link đúng trang. Thêm trang mới có cài đặt riêng thì bổ sung ở đây.
+     */
+    public const PAGE_HINTS = [
+        '/admin' => 'bảng tin, thống kê, widget, tổng quan',
+        '/admin/posts' => 'danh sách bài viết, lọc trạng thái, bản nháp, chờ duyệt, lên lịch, thùng rác, xoá nhiều bài',
+        '/admin/pages' => 'danh sách trang tĩnh, trang cha con, thùng rác',
+        '/admin/categories' => 'danh mục, chuyên mục con, mô tả chuyên mục',
+        '/admin/tags' => 'nhãn, từ khoá, gộp thẻ',
+        '/admin/media' => 'thư viện ảnh, tải ảnh lên, sửa alt, chú thích, xoá ảnh, dọn dẹp ảnh không dùng',
+        '/admin/themes' => 'giao diện, đổi theme, kích hoạt, cài theme từ zip, xoá theme',
+        '/admin/themes/editor' => 'sửa mã theme, css, php, javascript, khôi phục bản trước, AI sửa lỗi theme',
+        '/admin/plugins' => 'bật tắt plugin, cài plugin từ zip, xoá plugin, kiểm tra plugin bằng AI',
+        '/admin/settings' => 'tên website, khẩu hiệu, URL, email quản trị, cho phép đăng ký + vai trò mặc định, múi giờ, định dạng ngày giờ, trang chủ hiển thị, trang danh sách bài, số bài mỗi trang, số phiên bản giữ lại, chuyên mục mặc định, tác vụ định kỳ',
+        '/admin/settings/permalinks' => 'cấu trúc đường dẫn bài viết (permalink, slug), tiền tố chuyên mục/thẻ, cấu hình máy chủ (nginx)',
+        '/admin/settings/media' => 'dung lượng ảnh tối đa khi tải lên (MB), kích thước ảnh: giữ kích thước gốc hoặc chiều rộng/chiều cao tối đa (px), chất lượng nén JPG/WEBP/AVIF',
+        '/admin/settings/ai' => 'chọn nhà cung cấp AI (Claude, ChatGPT, Gemini), API key, model, cài thư viện AI',
+        '/admin/profile' => 'tên hiển thị, email, đổi mật khẩu, bật/tắt thanh quản trị ngoài website',
+    ];
+
     /** Route không cần đăng nhập. */
     private const PUBLIC_ROUTES = ['/admin/login', '/admin/register'];
 
@@ -63,6 +84,8 @@ final class Kernel
         $r->post('/admin/media/{id}/update', [MediaController::class, 'update']);
         $r->post('/admin/media/{id}/delete', [MediaController::class, 'destroy']);
         $r->post('/admin/media/bulk-delete', [MediaController::class, 'bulkDelete']);
+        $r->get('/admin/media/unused', [MediaController::class, 'unused']);
+        $r->post('/admin/media/cleanup', [MediaController::class, 'cleanup']);
 
         $r->get('/admin/{tax}', [TermsController::class, 'index']);
         $r->get('/admin/{tax}/{id}/edit', [TermsController::class, 'edit']);
@@ -74,19 +97,52 @@ final class Kernel
         $r->get('/admin/themes', [ThemesController::class, 'index']);
         $r->post('/admin/themes/activate', [ThemesController::class, 'activate']);
         $r->post('/admin/themes/delete', [ThemesController::class, 'destroy']);
-        $r->post('/admin/themes/upload', [ThemesController::class, 'upload']);
+        foreach (['theme' => '/admin/themes', 'plugin' => '/admin/plugins'] as $kind => $b) {
+            $r->post("$b/upload", fn () => PackageInstall::upload($kind));
+            $r->get("$b/review", fn () => PackageInstall::review($kind));
+            $r->post("$b/install", fn () => PackageInstall::install($kind));
+            $r->post("$b/cancel", fn () => PackageInstall::cancel($kind));
+        }
+        $r->get('/admin/themes/editor', [ThemeEditorController::class, 'index']);
+        $r->get('/admin/themes/editor/file', [ThemeEditorController::class, 'file']);
+        $r->post('/admin/themes/editor/save', [ThemeEditorController::class, 'save']);
+        $r->post('/admin/themes/editor/restore', [ThemeEditorController::class, 'restore']);
+        $r->post('/admin/themes/editor/create', [ThemeEditorController::class, 'create']);
 
         $r->get('/admin/plugins', [PluginsController::class, 'index']);
         $r->post('/admin/plugins/activate', [PluginsController::class, 'activate']);
         $r->post('/admin/plugins/deactivate', [PluginsController::class, 'deactivate']);
         $r->post('/admin/plugins/delete', [PluginsController::class, 'destroy']);
-        $r->post('/admin/plugins/upload', [PluginsController::class, 'upload']);
         $r->get('/admin/plugin/{slug}', [PluginPages::class, 'render']);
 
         $r->get('/admin/settings', [SettingsController::class, 'general']);
         $r->post('/admin/settings', [SettingsController::class, 'saveGeneral']);
         $r->post('/admin/settings/cron-run', [SettingsController::class, 'runCron']);
         $r->get('/admin/settings/permalinks', [SettingsController::class, 'permalinks']);
+        $r->get('/admin/settings/media', [SettingsController::class, 'media']);
+        $r->get('/admin/settings/ai', [AIController::class, 'settings']);
+        $r->post('/admin/settings/ai', [AIController::class, 'save']);
+        $r->post('/admin/ai/install', [AIController::class, 'install']);
+        $r->post('/admin/ai/uninstall', [AIController::class, 'uninstall']);
+        $r->post('/admin/ai/models', [AIController::class, 'models']);
+        $r->post('/admin/ai/test', [AIController::class, 'test']);
+        $r->post('/admin/ai/rewrite', [AIController::class, 'rewrite']);
+        $r->post('/admin/ai/write', [AIController::class, 'write']);
+        $r->post('/admin/ai/suggest', [AIController::class, 'suggest']);
+        $r->post('/admin/ai/theme-fix', [AIController::class, 'themeFix']);
+        $r->post('/admin/ai/taxonomy', [AIToolsController::class, 'taxonomy']);
+        $r->post('/admin/ai/links', [AIToolsController::class, 'links']);
+        $r->post('/admin/ai/term-describe', [AIToolsController::class, 'termDescribe']);
+        $r->post('/admin/ai/theme-explain', [AIToolsController::class, 'themeExplain']);
+        $r->post('/admin/ai/theme-scan', [AIToolsController::class, 'themeScan']);
+        $r->post('/admin/ai/plugin-scan', [AIToolsController::class, 'pluginScan']);
+        $r->post('/admin/ai/chat', [AIChatController::class, 'send']);
+        $r->post('/admin/ai/chat/apply', [AIChatController::class, 'apply']);
+        $r->post('/admin/ai/chat/models', [AIChatController::class, 'models']);
+        $r->post('/admin/ai/chat/undo', [AIChatController::class, 'undo']);
+        $r->post('/admin/ai/theme-generate', [AIToolsController::class, 'themeGenerate']);
+        $r->post('/admin/ai/package-review', [AIToolsController::class, 'packageReview']);
+        $r->post('/admin/settings/media', [SettingsController::class, 'saveMedia']);
         $r->post('/admin/settings/permalinks', [SettingsController::class, 'savePermalinks']);
 
         $r->get('/admin/profile', [ProfileController::class, 'edit']);
@@ -109,6 +165,16 @@ final class Kernel
             }
         }
         if ($method === 'POST' && !Csrf::valid()) {
+            // Gửi vượt post_max_size: PHP bỏ trống cả $_POST (mất luôn token) — báo đúng lý do thay vì "phiên hết hạn".
+            $limit = ini_parse_quantity((string) ini_get('post_max_size')); // 0 = không giới hạn
+            if (!$_POST && !$_FILES && $limit > 0 && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > $limit) {
+                $msg = 'Dữ liệu gửi lên quá lớn (máy chủ giới hạn ' . ini_get('post_max_size') . ').';
+                if (wants_json()) {
+                    json_response(['ok' => false, 'message' => $msg], 413);
+                }
+                flash('error', $msg);
+                redirect_back('/admin');
+            }
             if (wants_json()) {
                 json_response(['ok' => false, 'message' => 'Phiên làm việc đã hết hạn, hãy tải lại trang.'], 419);
             }
@@ -172,18 +238,26 @@ final class Kernel
             ]],
             ['label' => 'Media', 'icon' => 'images', 'url' => '/admin/media', 'cap' => 'upload_files'],
             ['section' => 'Hệ thống'],
-            ['label' => 'Giao diện', 'icon' => 'palette', 'url' => '/admin/themes', 'cap' => 'manage_themes'],
-            ['label' => 'Plugin', 'icon' => 'puzzle', 'url' => '/admin/plugins', 'cap' => 'manage_plugins', 'badge' => count(\LQ\Core\Plugins::activeSlugs()) ?: null],
+            ['label' => 'Giao diện', 'icon' => 'palette', 'url' => '/admin/themes', 'cap' => 'manage_themes', 'children' => [
+                ['label' => 'Theme', 'url' => '/admin/themes', 'cap' => 'manage_themes', 'exact' => true],
+                ...(\LQ\Core\ThemeFiles::editingAllowed() ? [['label' => 'Chỉnh sửa', 'url' => '/admin/themes/editor', 'cap' => 'edit_themes']] : []),
+            ]],
+            ['label' => 'Plugin', 'icon' => 'puzzle', 'url' => '/admin/plugins', 'cap' => 'manage_plugins', 'badge' => count(array_filter(\LQ\Core\Plugins::all(), fn ($p) => !$p['active'])) ?: null], // số plugin đã cài nhưng chưa bật
             ['label' => 'Cài đặt', 'icon' => 'settings', 'url' => '/admin/settings', 'cap' => 'manage_options', 'children' => [
                 ['label' => 'Tổng quan', 'url' => '/admin/settings', 'cap' => 'manage_options', 'exact' => true],
                 ['label' => 'Đường dẫn tĩnh', 'url' => '/admin/settings/permalinks', 'cap' => 'manage_options'],
+                ['label' => 'Media', 'url' => '/admin/settings/media', 'cap' => 'manage_options'],
+                ['label' => 'MCP', 'url' => '/admin/settings/ai', 'cap' => 'manage_options'],
             ]],
             ['label' => 'Hồ sơ', 'icon' => 'user-round', 'url' => '/admin/profile', 'cap' => 'access_admin'],
         ];
 
         $pages = PluginPages::menuItems();
         if ($pages) {
-            array_splice($menu, 2, 0, [['section' => 'Plugin'], ...$pages]);
+            // Nhóm "Plugin" đứng ngay trước nhóm "Hệ thống". Trước đây chèn cứng ở vị trí 2 (sau "Bài viết") nên
+            // Trang và Media bị xếp nhầm dưới tiêu đề "Plugin".
+            $at = array_key_first(array_filter($menu, fn ($m) => isset($m['section']))) ?? count($menu);
+            array_splice($menu, $at, 0, [['section' => 'Plugin'], ...$pages]);
         }
         $menu = apply_filters('admin_menu', $menu);
 
